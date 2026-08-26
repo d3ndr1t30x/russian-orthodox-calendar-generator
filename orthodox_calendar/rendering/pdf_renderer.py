@@ -56,6 +56,7 @@ class PublicationPalette:
     feast_wash = HexColor("#F8CACA")
     feast = HexColor("#D00000")
     holiday = HexColor("#243CFF")
+    note = HexColor("#009B16")
     white = HexColor("#FFFFFF")
     muted = HexColor("#555555")
 
@@ -210,6 +211,8 @@ class DayCellRenderer:
             entries.append((feast.name, "feast", feast.rank.value == "Great Feast"))
         for saint in (saint for saint in day.saints if saint.selected):
             entries.append((saint.display_name, "saint", saint.service_rank in {ServiceRank.VIGIL, ServiceRank.POLYELEOS}))
+        for note in day.notes:
+            entries.append((note, "note", False))
 
         omitted = 0
         for text, kind, prominent in entries:
@@ -218,10 +221,10 @@ class DayCellRenderer:
                 omitted += 1
                 continue
             major = kind == "feast" and (state in {"great_feast", "vigil"} or prominent)
-            font = self.fonts["sans_bold"] if major else self.fonts["sans"]
-            size = 6.4 if major else 5.75
+            font = self.fonts["sans_bold"] if major or kind == "note" else self.fonts["sans"]
+            size = 6.4 if major else (5.5 if kind == "note" else 5.75)
             lines = TextFitter.lines(text, font, size, text_width, min(3 if major else 2, available))
-            c.setFillColor(self.palette.feast if major or prominent else self.palette.ink)
+            c.setFillColor(self.palette.note if kind == "note" else (self.palette.feast if major or prominent else self.palette.ink))
             c.setFont(font, size)
             for line in lines:
                 if cursor < bottom:

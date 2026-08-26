@@ -9,6 +9,8 @@ $VenvPython = Join-Path $ProjectRoot '.venv\Scripts\python.exe'
 $ReleaseDir = Join-Path $ProjectRoot 'dist\RussianOrthodoxCalendar'
 $ReleaseExe = Join-Path $ReleaseDir 'RussianOrthodoxCalendar.exe'
 $SmokePdf = Join-Path $ProjectRoot 'output\pdf\EXE_Smoke_Test_2027_QLD.pdf'
+$ProjectSmokePdf = Join-Path $ProjectRoot 'output\pdf\EXE_Project_Smoke_Test_2027_QLD.pdf'
+$FixtureProject = Join-Path $ProjectRoot 'tests\fixtures\sample_calendar.rocproject'
 
 Set-Location -LiteralPath $ProjectRoot
 if (-not (Test-Path -LiteralPath $VenvPython)) {
@@ -48,6 +50,15 @@ if ($Process.ExitCode -ne 0) { throw "Packaged executable smoke test failed with
 & $VenvPython (Join-Path $ProjectRoot 'verify_release.py') $SmokePdf
 if ($LASTEXITCODE -ne 0) { throw 'The packaged executable produced an invalid PDF.' }
 
+if (Test-Path -LiteralPath $ProjectSmokePdf) { Remove-Item -LiteralPath $ProjectSmokePdf -Force }
+$ProjectProcess = Start-Process -FilePath $ReleaseExe -ArgumentList @('--project',('"' + $FixtureProject + '"'),'--generate-pdf','--output',('"' + $ProjectSmokePdf + '"')) -Wait -PassThru -WindowStyle Hidden
+if ($ProjectProcess.ExitCode -ne 0) { throw "Packaged project smoke test failed with exit code $($ProjectProcess.ExitCode)." }
+& $VenvPython (Join-Path $ProjectRoot 'verify_release.py') $ProjectSmokePdf
+if ($LASTEXITCODE -ne 0) { throw 'The packaged executable produced an invalid project PDF.' }
+$GuiProcess = Start-Process -FilePath $ReleaseExe -ArgumentList @('--gui-smoke-test','--project',('"' + $FixtureProject + '"')) -Wait -PassThru -WindowStyle Hidden
+if ($GuiProcess.ExitCode -ne 0) { throw "Packaged GUI project launch/close test failed with exit code $($GuiProcess.ExitCode)." }
+
 Write-Host "BUILD VERIFIED: $ReleaseExe"
 Write-Host "EXE-GENERATED PDF VERIFIED: $SmokePdf"
-
+Write-Host "EXE PROJECT REOPEN/PDF VERIFIED: $ProjectSmokePdf"
+Write-Host "EXE GUI PROJECT LAUNCH/CLOSE VERIFIED"

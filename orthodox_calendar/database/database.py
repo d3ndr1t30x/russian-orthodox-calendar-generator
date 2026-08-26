@@ -262,6 +262,19 @@ class Database:
             row = db.execute("SELECT status FROM calendar_versions WHERE year=?", (year,)).fetchone()
         return bool(row and row[0] == "authoritative")
 
+    def calendar_version(self, year: int) -> tuple[str, str]:
+        """Return a stable project-facing data version and last synchronization timestamp."""
+        with self.connect() as db:
+            row = db.execute(
+                """SELECT cv.status,cv.imported_at,COALESCE(s.source_version,''),COALESCE(s.name,'')
+                   FROM calendar_versions cv LEFT JOIN sources s ON s.id=cv.source_id WHERE cv.year=?""",
+                (year,),
+            ).fetchone()
+        if not row:
+            return f"{year}.calculated", ""
+        source_version = row[2] or row[1]
+        return f"{year}.{row[0]}.{source_version}", row[1]
+
     def stats(self) -> dict[str, int]:
         tables = ("saints", "feasts", "fasting_records", "public_holidays", "conflicts")
         with self.connect() as db:

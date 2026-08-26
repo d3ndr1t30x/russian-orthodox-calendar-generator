@@ -8,7 +8,7 @@ from pathlib import Path
 
 @dataclass
 class Settings:
-    config_version: int = 3
+    config_version: int = 4
     default_year: int = 0
     jurisdiction: str = "Queensland"
     language: str = "English"
@@ -32,6 +32,7 @@ class Settings:
     phone: str = ""
     custom_header: str = ""
     custom_footer: str = ""
+    recent_projects: list[str] = field(default_factory=list)
 
     @property
     def effective_year(self) -> int:
@@ -51,6 +52,8 @@ class SettingsStore:
                 data.update({"config_version": 2, "orientation": "Landscape", "paper": "A4", "include_fasting_icons": True, "include_fasting_legend": True})
             if int(data.get("config_version", 1)) < 3:
                 data.update({"config_version": 3, "include_service_rank_icons": True, "include_service_rank_legend": True, "rank_labels_en": {}, "rank_labels_ru": {}})
+            if int(data.get("config_version", 1)) < 4:
+                data.update({"config_version": 4, "recent_projects": []})
             if str(data.get("language", "")).startswith("Russian"):
                 data["language"] = "Russian"
             return Settings(**{k: v for k, v in data.items() if k in Settings.__dataclass_fields__})
