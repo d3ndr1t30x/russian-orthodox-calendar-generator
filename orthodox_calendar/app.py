@@ -103,7 +103,7 @@ def main(argv: list[str] | None = None) -> int:
     app = QApplication(sys.argv); app.setApplicationName("Russian Orthodox Calendar Generator"); app.setOrganizationName("Russian Orthodox Calendar Generator"); app.setStyleSheet(APP_STYLESHEET)
     window = MainWindow(database, settings, store, args.project or args.project_file, check_data_updates=not args.gui_smoke_test); window.show()
     if args.gui_smoke_test:
-        QTimer.singleShot(2500, window.close)
+        QTimer.singleShot(1000, window.run_gui_smoke_test)
     return app.exec()
 
 

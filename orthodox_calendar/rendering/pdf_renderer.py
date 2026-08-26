@@ -15,7 +15,7 @@ from reportlab.pdfgen.canvas import Canvas
 from orthodox_calendar import __version__
 from orthodox_calendar.models import CalendarDay, FastLevel, ServiceRank, ServiceRankInfo
 from orthodox_calendar.paths import asset_path
-from orthodox_calendar.service_ranks import localized_rank_name
+from orthodox_calendar.service_ranks import icon_name_for, localized_rank_name
 from .layout import REFERENCE_LAYOUT, ReferenceLayout
 
 
@@ -103,7 +103,7 @@ class IconRenderer:
 
     @staticmethod
     def rank_name(day: CalendarDay) -> str | None:
-        return {ServiceRank.GREAT_FEAST: "great_feast", ServiceRank.VIGIL: "vigil", ServiceRank.POLYELEOS: "polyeleos", ServiceRank.DOXOLOGY: "doxology", ServiceRank.SIX_STICHERA: "six_stichera", ServiceRank.NO_SIGN: "no_sign"}.get(day.service_rank.normalized_rank)
+        return icon_name_for(day.service_rank)
 
     @staticmethod
     def permissions(day_or_fasting) -> list[str]:

@@ -1,6 +1,6 @@
 # Russian Orthodox Calendar Generator
 
-Version 1.5.0 adds portable, editable `.rocproject` documents to the A4 landscape, Sunday-first publication layout reverse-
+Version 1.6.0 adds interactive calendar-day editing and safe project reset controls to the portable `.rocproject` workflow and A4 landscape, Sunday-first publication layout reverse-
 engineered from the supplied bilingual calendar reference. The renderer keeps
 calendar content dynamic while matching the reference's typography, grid,
 colours, icons, fasting washes, and compact legends.
@@ -30,11 +30,14 @@ A Windows desktop application for producing print-ready Russian Orthodox calenda
 - Standalone Windows distribution: end users do not need Python or the legacy .NET application.
 - Human-readable project documents that preserve edits separately from the source database.
 - Atomic save, backup, autosave/recovery, recent-project and calendar-data update workflows.
+- Whole-cell hover highlighting, exact-date double-click editing and day context menus.
+- Responsive, resizable editor with scrolling, collapsible sections and persistent Save Edits / Cancel / Reset Day actions.
+- Project-only Reset Day, Reset Month and strongly confirmed Reset Year operations.
 
 ## Install the Windows release
 
 1. Open the repository's **Releases** page.
-2. Download `RussianOrthodoxCalendar-1.5.0-windows-x64.zip`.
+2. Download `RussianOrthodoxCalendar-1.6.0-windows-x64.zip`.
 3. Extract the complete archive.
 4. Run `RussianOrthodoxCalendar.exe`.
 
@@ -55,6 +58,12 @@ Open an existing document with **File > Open Project** (`Ctrl+O`), the Recent Pr
 ```
 
 The saved year, jurisdiction, language, saint selections and exclusions, exact order, primary saint, overrides, notes, parish details and PDF settings replace global defaults when reopened. **Close Project** (`Ctrl+W`), New, Open and application exit all offer Save / Don't Save / Cancel when necessary.
+
+The annual viewer is directly interactive: hover anywhere over a date to outline its complete cell, single-click to select it, and double-click to open that exact date in the day editor. Service ranks appear as icon plus text in both the viewer and the editor's always-visible rank banner. The editor can be resized, minimized or maximized; its detail sections can be expanded or collapsed and remain reachable through scrolling at smaller window sizes.
+
+**Save Edits** applies one editor transaction to the in-memory project and marks the project dirty. It does not write the `.rocproject`; use **File > Save Project** for that operation. A validated disk save displays an explicit **Project Saved** confirmation, while failures retain the dirty state and show the reason.
+
+Use **Edit > Reset Day**, **Reset Month**, or **Reset Year** to remove project overrides and reconstruct dates from the source snapshot already stored in that project. These actions never synchronize, alter SQLite source records, or affect another project. Day and month resets identify their scope and affected-day count. Reset Year additionally requires typing `RESET <year>`.
 
 ## Project files, portability and recovery
 

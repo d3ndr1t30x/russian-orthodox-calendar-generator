@@ -6,12 +6,12 @@ from dataclasses import asdict
 from datetime import date
 from pathlib import Path
 
-from PySide6.QtCore import QTimer, Qt
-from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices
+from PySide6.QtCore import QSize, QTimer, Qt, Signal
+from PySide6.QtGui import QAction, QCloseEvent, QIcon
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QDialog, QFileDialog, QGridLayout, QGroupBox, QHBoxLayout,
-    QLabel, QMainWindow, QMessageBox, QProgressDialog, QPushButton, QScrollArea,
-    QSpinBox, QVBoxLayout, QWidget,
+    QInputDialog, QLabel, QMainWindow, QMenu, QMessageBox, QProgressDialog,
+    QPushButton, QScrollArea, QSpinBox, QToolButton, QVBoxLayout, QWidget,
 )
 
 from orthodox_calendar.calendar_engine.australian_holidays import JURISDICTIONS
@@ -19,11 +19,12 @@ from orthodox_calendar.calendar_engine.orthodox_calendar import OrthodoxCalendar
 from orthodox_calendar.config import Settings, SettingsStore
 from orthodox_calendar.data_sources.importer import CalendarImporter
 from orthodox_calendar.database.database import Database
-from orthodox_calendar.models import CalendarDay, FastLevel
+from orthodox_calendar.models import CalendarDay, FastLevel, ServiceRank
 from orthodox_calendar.paths import ensure_user_dirs
 from orthodox_calendar.projects import CalendarProject, ProjectSettings, ProjectStore, ProjectValidationError
 from orthodox_calendar.rendering.pdf_renderer import PdfOptions, PdfRenderer
 from orthodox_calendar.services.synchronization import SynchronizationService
+from orthodox_calendar.service_ranks import icon_path_for, labels_for
 from .calendar_editor import CalendarEditor
 from .preview import PreviewDialog
 from .project_dialogs import NewProjectDialog
@@ -34,24 +35,86 @@ from .source_dialog import SourceDialog
 LOG = logging.getLogger(__name__)
 
 
-class MonthCard(QGroupBox):
+class DayCell(QToolButton):
+    daySelected = Signal(object); editRequested = Signal(object); resetRequested = Signal(object)
+
+    def __init__(self, day: CalendarDay):
+        super().__init__(); self.day = day; self.hovered = False; self.selected = False
+        rank = day.service_rank.normalized_rank
+        supported = {ServiceRank.GREAT_FEAST, ServiceRank.VIGIL, ServiceRank.POLYELEOS, ServiceRank.DOXOLOGY, ServiceRank.SIX_STICHERA, ServiceRank.NO_SIGN}
+        self.rank_text = labels_for(rank)[0] if rank in supported else ""
+        self.setText(f"{day.civil_date.day}\n{self.rank_text}")
+        rank_path = icon_path_for(day.service_rank)
+        if rank_path and rank_path.exists(): self.setIcon(QIcon(str(rank_path)))
+        self.setIconSize(QSize(16, 16)); self.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+        self.setMinimumSize(48, 55); self.setCursor(Qt.PointingHandCursor)
+        self.clicked.connect(lambda: self.daySelected.emit(self.day.civil_date))
+        self.setToolTip(self._tooltip()); self._apply_style()
+
+    def _tooltip(self) -> str:
+        saints = ", ".join(item.display_name for item in self.day.saints if item.selected) or "No selected saints"
+        rank = self.rank_text or labels_for(self.day.service_rank.normalized_rank)[0]
+        return f"{self.day.civil_date:%A, %d %B %Y}\nService rank: {rank}\n{saints}\nDouble-click to edit"
+
+    def _apply_style(self) -> None:
+        major = self.day.service_rank.normalized_rank in {ServiceRank.GREAT_FEAST, ServiceRank.VIGIL}
+        strict = self.day.fasting and self.day.fasting.level == FastLevel.STRICT
+        background = "#F8CACA" if major else ("#D3D3D3" if strict else "#FFFFFF")
+        border = "#2474B5" if self.hovered else ("#185C37" if self.selected else "#C7C0B8")
+        width = 2 if self.hovered or self.selected else 1
+        color = "#B00000" if self.day.civil_date.weekday() == 6 or major else "#222222"
+        self.setStyleSheet(f"QToolButton {{ background:{background}; color:{color}; border:{width}px solid {border}; border-radius:3px; padding:2px; font-size:7pt; font-weight:600; }}")
+
+    def set_selected(self, selected: bool) -> None:
+        self.selected = selected; self._apply_style()
+
+    def enterEvent(self, event) -> None:
+        self.hovered = True; self._apply_style(); super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        self.hovered = False; self._apply_style(); super().leaveEvent(event)
+
+    def mouseDoubleClickEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton: self.editRequested.emit(self.day.civil_date); event.accept(); return
+        super().mouseDoubleClickEvent(event)
+
+    def contextMenuEvent(self, event) -> None:
+        menu = QMenu(self); edit = menu.addAction("Edit Day"); reset = menu.addAction("Reset Day"); chosen = menu.exec(event.globalPos())
+        if chosen == edit: self.editRequested.emit(self.day.civil_date)
+        elif chosen == reset: self.resetRequested.emit(self.day.civil_date)
+
+
+class InteractiveMonthCard(QGroupBox):
+    daySelected = Signal(object); editRequested = Signal(object); resetRequested = Signal(object); monthResetRequested = Signal(int)
+
     def __init__(self, month: int):
-        super().__init__(calendar.month_name[month]); self.month = month
-        self.label = QLabel(); self.label.setTextFormat(Qt.RichText); self.label.setAlignment(Qt.AlignTop | Qt.AlignHCenter); self.label.setStyleSheet("font-family: Consolas, monospace; font-size: 8pt; line-height: 120%;")
-        layout = QVBoxLayout(self); layout.addWidget(self.label)
+        super().__init__(calendar.month_name[month]); self.month = month; self.day_cells: dict[date, DayCell] = {}
+        self.setMinimumHeight(385)
+        self.grid = QGridLayout(self); self.grid.setSpacing(3)
+        self.setContextMenuPolicy(Qt.CustomContextMenu); self.customContextMenuRequested.connect(self._month_menu)
+
+    def _month_menu(self, position) -> None:
+        menu = QMenu(self); reset = menu.addAction(f"Reset {calendar.month_name[self.month]}")
+        if menu.exec(self.mapToGlobal(position)) == reset: self.monthResetRequested.emit(self.month)
 
     def populate(self, year: int, days: list[CalendarDay]) -> None:
+        while self.grid.count():
+            item = self.grid.takeAt(0)
+            if item.widget(): item.widget().deleteLater()
+        self.day_cells.clear()
+        for column, label in enumerate(("S", "M", "T", "W", "T", "F", "S")):
+            header = QLabel(label); header.setAlignment(Qt.AlignCenter); header.setStyleSheet("font-weight:700;color:#5F1724"); self.grid.addWidget(header, 0, column)
         by_number = {day.civil_date.day: day for day in days if day.civil_date.month == self.month}
-        rows = ["<table cellspacing='2' width='100%'><tr>" + "".join(f"<th>{x}</th>" for x in "S M T W T F S".split()) + "</tr>"]
-        for week in calendar.Calendar(firstweekday=6).monthdayscalendar(year, self.month):
-            cells = []
-            for number in week:
-                if not number or number not in by_number: cells.append("<td>&nbsp;</td>"); continue
-                day = by_number[number]; marks = ("†" if day.feasts else "") + ("◆" if day.public_holidays else "") + ("·" if day.fasting and day.fasting.level != FastLevel.FREE else "")
-                color = "#8b1e2d" if day.civil_date.weekday() == 6 or any(f.rank.value == "Great Feast" for f in day.feasts) else "#2c2723"
-                cells.append(f"<td align='center'><span style='color:{color};font-weight:600'>{number}</span><sup>{marks}</sup></td>")
-            rows.append("<tr>" + "".join(cells) + "</tr>")
-        rows.append("</table>"); self.label.setText("".join(rows))
+        for row, week in enumerate(calendar.Calendar(firstweekday=6).monthdayscalendar(year, self.month), 1):
+            for column, number in enumerate(week):
+                if not number or number not in by_number:
+                    empty = QWidget(); empty.setMinimumHeight(55); self.grid.addWidget(empty, row, column); continue
+                cell = DayCell(by_number[number]); self.day_cells[cell.day.civil_date] = cell
+                cell.daySelected.connect(self.daySelected); cell.editRequested.connect(self.editRequested); cell.resetRequested.connect(self.resetRequested)
+                self.grid.addWidget(cell, row, column)
+
+    def set_selected_date(self, selected: date | None) -> None:
+        for civil_date, cell in self.day_cells.items(): cell.set_selected(civil_date == selected)
 
 
 class MainWindow(QMainWindow):
@@ -61,7 +124,7 @@ class MainWindow(QMainWindow):
         self.check_data_updates = check_data_updates
         self.engine, self.renderer = OrthodoxCalendarEngine(database), PdfRenderer()
         paths = ensure_user_dirs(); self.project_store = ProjectStore(paths["cache"] / "recovery")
-        self.project: CalendarProject | None = None; self.days: list[CalendarDay] = []; self._loading_ui = False
+        self.project: CalendarProject | None = None; self.days: list[CalendarDay] = []; self._loading_ui = False; self.selected_date: date | None = None
         self.resize(1250, 860); self.setMinimumSize(960, 680)
         self._build_actions(); self._build_menu(); self._build_toolbar(); self._build_ui(); self._connect_controls()
         self.autosave_timer = QTimer(self); self.autosave_timer.setInterval(30_000); self.autosave_timer.timeout.connect(self.autosave_project); self.autosave_timer.start()
@@ -81,7 +144,7 @@ class MainWindow(QMainWindow):
         if answer == QMessageBox.Yes:
             try:
                 self.project = self.project_store.load(latest); self.project.file_path = ""; self.project.modified = True
-                self.days = self.project.resolve_days(); self._set_controls_from_project(); self._populate_months(); self._update_project_ui("Recovered unsaved project")
+                self.days = self.project.resolve_days(); self.selected_date = date(self.project.settings.year, 1, 1); self._set_controls_from_project(); self._populate_months(); self._update_project_ui("Recovered unsaved project")
                 LOG.info("Project recovered: %s", self.project.project_id); return
             except Exception as exc:
                 QMessageBox.warning(self, "Recovery failed", str(exc))
@@ -96,12 +159,19 @@ class MainWindow(QMainWindow):
         self.project_info_action = QAction("Project Information", self, triggered=self.show_project_information)
         self.export_action = QAction("Export PDF...", self, triggered=self.generate_pdf)
         self.exit_action = QAction("Exit", self, triggered=self.close)
+        self.reset_day_action = QAction("Reset Day", self, triggered=self.reset_selected_day)
+        self.reset_month_action = QAction("Reset Month", self, triggered=self.reset_selected_month)
+        self.reset_year_action = QAction("Reset Year", self, triggered=self.reset_current_year)
+        self.reset_day_action.setEnabled(False); self.reset_month_action.setEnabled(False); self.reset_year_action.setEnabled(False)
+        self.new_action.setIconText("New"); self.open_action.setIconText("Open"); self.save_action.setIconText("Save"); self.export_action.setIconText("Export PDF")
 
     def _build_menu(self) -> None:
         file_menu = self.menuBar().addMenu("&File")
         for action in (self.new_action, self.open_action, self.save_action, self.save_as_action, self.close_project_action): file_menu.addAction(action)
         self.recent_menu = file_menu.addMenu("Recent Projects"); file_menu.addAction(self.project_info_action); file_menu.addSeparator(); file_menu.addAction(self.export_action); file_menu.addSeparator(); file_menu.addAction(self.exit_action)
         self._rebuild_recent_menu()
+        edit_menu = self.menuBar().addMenu("&Edit")
+        edit_menu.addAction(self.reset_day_action); edit_menu.addAction(self.reset_month_action); edit_menu.addAction(self.reset_year_action)
 
     def _build_toolbar(self) -> None:
         toolbar = self.addToolBar("Main"); toolbar.setMovable(False)
@@ -130,7 +200,9 @@ class MainWindow(QMainWindow):
         self.notice = QLabel(); self.notice.setWordWrap(True); self.notice.setStyleSheet("background:#fff4cf;border:1px solid #ddbd58;border-radius:5px;padding:8px;color:#594910"); root.addWidget(self.notice)
         scroll = QScrollArea(); scroll.setWidgetResizable(True); content = QWidget(); content.setObjectName("annualContent"); content.setStyleSheet("#annualContent { background-color: #f4f1eb; }"); self.month_grid = QGridLayout(content); self.month_cards = []
         for month in range(1, 13):
-            card = MonthCard(month); self.month_cards.append(card); self.month_grid.addWidget(card, (month - 1) // 4, (month - 1) % 4)
+            card = InteractiveMonthCard(month); card.daySelected.connect(self.select_day); card.editRequested.connect(self.open_day_editor)
+            card.resetRequested.connect(self.reset_day); card.monthResetRequested.connect(self.reset_month)
+            self.month_cards.append(card); self.month_grid.addWidget(card, (month - 1) // 3, (month - 1) % 3)
         scroll.setWidget(content); root.addWidget(scroll, 1); self.setCentralWidget(central); self.statusBar().showMessage("Ready")
 
     def _connect_controls(self) -> None:
@@ -177,7 +249,7 @@ class MainWindow(QMainWindow):
             raise ProjectValidationError(f"Calendar data for {project_settings.year} is not currently available")
         days = self.engine.generate_year(project_settings.year, project_settings.jurisdiction, project_settings.language)
         version, sync = self.database.calendar_version(project_settings.year)
-        self.project = CalendarProject.create(name, project_settings, days, version, sync); self.days = self.project.resolve_days(); self._set_controls_from_project(); self._populate_months(); self._update_project_ui(); LOG.info("Project created: %s", self.project.project_id)
+        self.project = CalendarProject.create(name, project_settings, days, version, sync); self.days = self.project.resolve_days(); self.selected_date = date(project_settings.year, 1, 1); self._set_controls_from_project(); self._populate_months(); self._update_project_ui(); LOG.info("Project created: %s", self.project.project_id)
         return self.project
 
     def new_project(self) -> None:
@@ -211,7 +283,15 @@ class MainWindow(QMainWindow):
 
     def _populate_months(self) -> None:
         year = self.project.settings.year if self.project else self.year.value()
-        for card in self.month_cards: card.populate(year, self.days)
+        for card in self.month_cards:
+            card.populate(year, self.days); card.set_selected_date(self.selected_date)
+
+    def select_day(self, civil_date: date) -> None:
+        self.selected_date = civil_date
+        for card in self.month_cards: card.set_selected_date(civil_date)
+        enabled = self.project is not None
+        self.reset_day_action.setEnabled(enabled); self.reset_month_action.setEnabled(enabled)
+        self.statusBar().showMessage(f"Selected {civil_date:%A, %d %B %Y} - double-click to edit")
 
     def _set_controls_from_project(self) -> None:
         if not self.project: return
@@ -227,15 +307,21 @@ class MainWindow(QMainWindow):
         else:
             self.setWindowTitle("Russian Orthodox Calendar Generator"); self.project_status.setText("No project open — legacy browse/export mode")
         enabled = self.project is not None; self.save_action.setEnabled(enabled); self.save_as_action.setEnabled(enabled); self.close_project_action.setEnabled(enabled); self.project_info_action.setEnabled(enabled)
+        self.reset_year_action.setEnabled(enabled); self.reset_day_action.setEnabled(enabled and self.selected_date is not None); self.reset_month_action.setEnabled(enabled and self.selected_date is not None)
+
+    def _show_save_success(self) -> None:
+        if not self.project: return
+        self.statusBar().showMessage(f"Project Saved - {self.project.project_name}", 8000)
+        QMessageBox.information(self, "Project Saved", f"{self.project.project_name}\n\n{self.project.settings.year} - {self.project.settings.jurisdiction}\n\nSaved successfully.")
 
     def save_project(self) -> bool:
         if not self.project: return False
         self._apply_controls_to_project()
         if not self.project.file_path: return self.save_project_as()
         try:
-            self.project_store.save(self.project, Path(self.project.file_path)); self._remember_project(Path(self.project.file_path)); self._update_project_ui(); return True
+            self.project_store.save(self.project, Path(self.project.file_path)); self._remember_project(Path(self.project.file_path)); self._update_project_ui(); self._show_save_success(); return True
         except Exception as exc:
-            QMessageBox.critical(self, "Project save failed", str(exc)); return False
+            self.project.mark_modified(); self._update_project_ui(); QMessageBox.critical(self, "Project Save Failed", f"Unable to save the project.\n\nReason:\n{exc}"); return False
 
     def save_project_as(self) -> bool:
         if not self.project: return False
@@ -243,9 +329,9 @@ class MainWindow(QMainWindow):
         filename, _ = QFileDialog.getSaveFileName(self, "Save calendar project", default, "Russian Orthodox Calendar Project (*.rocproject)")
         if not filename: return False
         try:
-            path = self.project_store.save(self.project, Path(filename)); self._remember_project(path); self._update_project_ui(); return True
+            path = self.project_store.save(self.project, Path(filename)); self._remember_project(path); self._update_project_ui(); self._show_save_success(); return True
         except Exception as exc:
-            QMessageBox.critical(self, "Project save failed", str(exc)); return False
+            self.project.mark_modified(); self._update_project_ui(); QMessageBox.critical(self, "Project Save Failed", f"Unable to save the project.\n\nReason:\n{exc}"); return False
 
     def open_project(self) -> None:
         if not self._confirm_project_transition(): return
@@ -261,7 +347,7 @@ class MainWindow(QMainWindow):
                 if answer == QMessageBox.Yes: project = self.project_store.load_recovery(path)
                 else: self.project_store.discard_recovery(path); project = self.project_store.load(path)
             else: project = self.project_store.load(path)
-            self.project = project; self.days = project.resolve_days(); self._set_controls_from_project(); self._populate_months(); self._remember_project(path); self._update_project_ui()
+            self.project = project; self.days = project.resolve_days(); self.selected_date = date(project.settings.year, 1, 1); self._set_controls_from_project(); self._populate_months(); self._remember_project(path); self._update_project_ui()
             available, _ = self.database.calendar_version(project.settings.year)
             if self.check_data_updates and available != project.calendar_data_version:
                 box = QMessageBox(self); box.setWindowTitle("Updated calendar data available"); box.setText(f"Current project data: {project.calendar_data_version}\nAvailable: {available}")
@@ -282,7 +368,7 @@ class MainWindow(QMainWindow):
             if backup.exists() and QMessageBox.question(self, "Unable to open project", message + "\n\nRestore the backup copy?") == QMessageBox.Yes:
                 try:
                     project = self.project_store.load(backup); project.file_path = str(path); project.modified = True
-                    self.project = project; self.days = project.resolve_days(); self._set_controls_from_project(); self._populate_months(); self._update_project_ui("Backup recovered; save to restore the main project file")
+                    self.project = project; self.days = project.resolve_days(); self.selected_date = date(project.settings.year, 1, 1); self._set_controls_from_project(); self._populate_months(); self._update_project_ui("Backup recovered; save to restore the main project file")
                     return True
                 except Exception as backup_exc:
                     QMessageBox.critical(self, "Backup recovery failed", str(backup_exc)); return False
@@ -291,7 +377,7 @@ class MainWindow(QMainWindow):
     def close_project(self) -> bool:
         if not self._confirm_project_transition(): return False
         if self.project: LOG.info("Project closed: %s", self.project.project_id)
-        self.project = None; self.load_calendar(); self._update_project_ui(); return True
+        self.project = None; self.selected_date = None; self.load_calendar(); self._update_project_ui(); return True
 
     def _confirm_project_transition(self) -> bool:
         if not self.project or not self.project.modified: return True
@@ -351,13 +437,64 @@ class MainWindow(QMainWindow):
         self.renderer.render(temp, self.days, self._options()); PreviewDialog(temp, self).exec()
 
     def edit_calendar(self) -> None:
+        self.open_day_editor(self.selected_date)
+
+    def open_day_editor(self, civil_date: date | None = None) -> None:
         if not self.project:
             self.create_project(self._settings_from_controls(), f"Untitled {self.year.value()} {self.state.currentText()}")
-        CalendarEditor(self.days, None, self, self._project_day_edited).exec(); self._populate_months(); self._update_project_ui()
+        if not self.days: return
+        target = civil_date if civil_date and any(day.civil_date == civil_date for day in self.days) else self.days[0].civil_date
+        self.select_day(target)
+        editor = CalendarEditor(
+            self.days, None, self, self._project_day_edited, target,
+            self.project.source_day if self.project else None, self._project_day_reset,
+        )
+        editor.exec(); self._populate_months(); self._update_project_ui()
 
     def _project_day_edited(self, day: CalendarDay, primary_id: str | None) -> None:
         if self.project:
             self.project.update_day(day, primary_id); self.autosave_project(); self._populate_months(); self._update_project_ui()
+
+    def _project_day_reset(self, civil_date: date) -> None:
+        if self.project and self.project.reset_day(civil_date):
+            self.days = self.project.resolve_days(); self.select_day(civil_date); self.autosave_project(); self._populate_months(); self._update_project_ui()
+
+    def reset_selected_day(self) -> None:
+        if self.selected_date: self.reset_day(self.selected_date)
+
+    def reset_day(self, civil_date: date) -> bool:
+        if not self.project: return False
+        if civil_date.isoformat() not in self.project.overrides:
+            QMessageBox.information(self, "Nothing to reset", f"{civil_date:%B %d, %Y} contains no custom project edits."); return False
+        answer = QMessageBox.question(self, "Reset day?", f"Reset {civil_date:%B %d, %Y}?\n\nThis will remove all custom edits from this day and restore the default data saved with this project.\n\nThe authoritative database will not be changed.", QMessageBox.Reset | QMessageBox.Cancel)
+        if answer != QMessageBox.Reset: return False
+        changed = self.project.reset_day(civil_date)
+        if changed:
+            self.days = self.project.resolve_days(); self.select_day(civil_date); self.autosave_project(); self._populate_months(); self._update_project_ui(f"Reset {civil_date:%B %d, %Y}")
+        return changed
+
+    def reset_selected_month(self) -> None:
+        if self.selected_date: self.reset_month(self.selected_date.month)
+
+    def reset_month(self, month: int) -> bool:
+        if not self.project: return False
+        year = self.project.settings.year; affected = self.project.override_dates(year, month); label = f"{calendar.month_name[month]} {year}"
+        if not affected:
+            QMessageBox.information(self, "Nothing to reset", f"{label} contains no custom edits.\n\nThere is nothing to reset."); return False
+        answer = QMessageBox.question(self, f"Reset {label}?", f"Reset {label}?\n\nThis month contains custom edits on {len(affected)} calendar day{'s' if len(affected) != 1 else ''}.\n\nAll custom edits from those days will be removed. Other months and the authoritative database will not be changed.", QMessageBox.Reset | QMessageBox.Cancel)
+        if answer != QMessageBox.Reset: return False
+        self.project.reset_month(year, month); self.days = self.project.resolve_days(); self.autosave_project(); self._populate_months(); self._update_project_ui(f"Reset {label}"); return True
+
+    def reset_current_year(self) -> bool:
+        if not self.project: return False
+        year = self.project.settings.year; affected = self.project.override_dates(year)
+        if not affected:
+            QMessageBox.information(self, "Nothing to reset", f"The {year} project contains no custom calendar-day edits."); return False
+        months = len({value.month for value in affected})
+        prompt = f"Reset entire {year} calendar?\n\nThis project contains custom edits on {len(affected)} calendar days across {months} months.\n\nResetting the year removes ALL custom calendar-day edits. The authoritative database remains unchanged.\n\nType RESET {year} to confirm:"
+        value, accepted = QInputDialog.getText(self, f"Reset entire {year} calendar?", prompt)
+        if not accepted or value.strip() != f"RESET {year}": return False
+        self.project.reset_year(year); self.days = self.project.resolve_days(); self.autosave_project(); self._populate_months(); self._update_project_ui(f"Reset entire {year} calendar"); return True
 
     def import_data(self, year: int | None = None) -> None:
         filename, _ = QFileDialog.getOpenFileName(self, "Import authoritative calendar data", "", "Calendar data (*.json *.csv *.xml *.html *.htm *.pdf)")
@@ -392,7 +529,25 @@ class MainWindow(QMainWindow):
             if dialog.exec(): dialog.apply(); self.store.save(self.settings); self.language.setCurrentText(self.settings.language); self.orientation.setCurrentText(self.settings.orientation)
 
     def about(self) -> None:
-        QMessageBox.about(self, "About", "<h2>Russian Orthodox Calendar Generator</h2><p>Version 1.5.0</p><p>Editable .rocproject documents preserve source snapshots, selections, ordering, overrides, notes and publication settings separately from the authoritative database.</p>")
+        QMessageBox.about(self, "About", "<h2>Russian Orthodox Calendar Generator</h2><p>Version 1.6.0</p><p>Interactive day cells, a responsive day editor and project-only reset controls complement portable editable .rocproject documents.</p>")
+
+    def run_gui_smoke_test(self) -> None:
+        """Exercise packaged viewer/editor UX and exit non-zero on failure."""
+        if not self.project:
+            QTimer.singleShot(200, self.run_gui_smoke_test); return
+        try:
+            target = next((date.fromisoformat(key) for key in self.project.overrides), self.days[0].civil_date)
+            self.select_day(target); card = self.month_cards[target.month - 1]; cell = card.day_cells[target]
+            if cell.icon().isNull() or not cell.rank_text: raise RuntimeError("Viewer rank icon/text was not rendered")
+            cell.hovered = True; cell._apply_style()
+            if "#2474B5" not in cell.styleSheet(): raise RuntimeError("Day hover highlight was not applied")
+            editor = CalendarEditor(self.days, initial_date=target, source_day_provider=self.project.source_day)
+            editor.resize(700, 500); editor.set_all_sections(False); editor.set_all_sections(True); editor.showMaximized(); QApplication.processEvents(); editor.showNormal()
+            if editor.rank_icon.pixmap() is None or editor.rank_icon.pixmap().isNull(): raise RuntimeError("Editor rank icon was not rendered")
+            if editor.save_button.text() != "Save Edits" or not editor.findChildren(QScrollArea): raise RuntimeError("Editor actions or scrolling are unavailable")
+            editor.close(); self.project.modified = False; self.close()
+        except Exception:
+            LOG.exception("Packaged GUI UX smoke test failed"); QApplication.exit(3)
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if not self._confirm_project_transition(): event.ignore(); return

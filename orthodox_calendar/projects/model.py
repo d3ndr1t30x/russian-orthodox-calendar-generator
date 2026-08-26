@@ -431,6 +431,43 @@ class CalendarProject:
         }
         self.mark_modified()
 
+    def source_day(self, civil_date: date) -> CalendarDay | None:
+        """Return this project's saved authoritative/default day, never live DB data."""
+        key = civil_date.isoformat()
+        item = next((value for value in self.source_snapshot if value.get("civil_date") == key), None)
+        return day_from_dict(copy.deepcopy(item)) if item else None
+
+    def reset_day(self, civil_date: date) -> bool:
+        """Remove only this project's override for one date."""
+        changed = self.overrides.pop(civil_date.isoformat(), None) is not None
+        if changed:
+            self.mark_modified()
+        return changed
+
+    def reset_month(self, year: int, month: int) -> list[str]:
+        keys = [key for key in self.overrides if date.fromisoformat(key).year == year and date.fromisoformat(key).month == month]
+        for key in keys:
+            del self.overrides[key]
+        if keys:
+            self.mark_modified()
+        return sorted(keys)
+
+    def reset_year(self, year: int) -> list[str]:
+        keys = [key for key in self.overrides if date.fromisoformat(key).year == year]
+        for key in keys:
+            del self.overrides[key]
+        if keys:
+            self.mark_modified()
+        return sorted(keys)
+
+    def override_dates(self, year: int | None = None, month: int | None = None) -> list[date]:
+        result = [date.fromisoformat(key) for key in self.overrides]
+        if year is not None:
+            result = [value for value in result if value.year == year]
+        if month is not None:
+            result = [value for value in result if value.month == month]
+        return sorted(result)
+
     def mark_modified(self) -> None:
         self.modified = True
         self.modified_at = utc_now()

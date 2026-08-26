@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
 
 from orthodox_calendar.models import ServiceRank, ServiceRankInfo
+from orthodox_calendar.paths import asset_path
 
 
 # Holy Trinity's own Typikon Signs key:
@@ -23,7 +25,7 @@ RANK_LABELS = {
     ServiceRank.POLYELEOS: ("Polyeleos", "Полиелейная служба"),
     ServiceRank.DOXOLOGY: ("Doxology", "Славословная служба"),
     ServiceRank.SIX_STICHERA: ("Six Stichera", "Шестеричная служба"),
-    ServiceRank.NO_SIGN: ("Ordinary Daily Service", "Без знака"),
+    ServiceRank.NO_SIGN: ("No Sign", "Без знака"),
     ServiceRank.OTHER: ("Other Service Rank", "Другой ранг службы"),
     ServiceRank.UNKNOWN: ("Unknown Service Rank", "Неизвестный ранг службы"),
     ServiceRank.NO_DATA: ("No Rank Data", "Нет данных о ранге"),
@@ -41,6 +43,17 @@ RANK_PRIORITY = {
     ServiceRank.UNKNOWN: 5,
     ServiceRank.NO_DATA: 0,
     ServiceRank.NONE: 0,
+}
+
+# The single authoritative service-rank-to-icon mapping used by the viewer,
+# editor, preview and PDF renderer.
+RANK_ICON_NAMES = {
+    ServiceRank.GREAT_FEAST: "great_feast",
+    ServiceRank.VIGIL: "vigil",
+    ServiceRank.POLYELEOS: "polyeleos",
+    ServiceRank.DOXOLOGY: "doxology",
+    ServiceRank.SIX_STICHERA: "six_stichera",
+    ServiceRank.NO_SIGN: "no_sign",
 }
 
 TERM_MAP = {
@@ -104,6 +117,16 @@ def highest_rank(infos: list[ServiceRankInfo]) -> ServiceRankInfo:
 def localized_rank_name(info: ServiceRankInfo, language: str, overrides_en: dict[str, str] | None = None, overrides_ru: dict[str, str] | None = None) -> str:
     english, russian = labels_for(info.normalized_rank, overrides_en, overrides_ru)
     return russian if language == "Russian" else english
+
+
+def icon_name_for(rank: ServiceRank | ServiceRankInfo) -> str | None:
+    value = rank.normalized_rank if isinstance(rank, ServiceRankInfo) else rank
+    return RANK_ICON_NAMES.get(value)
+
+
+def icon_path_for(rank: ServiceRank | ServiceRankInfo) -> Path | None:
+    name = icon_name_for(rank)
+    return asset_path("icons", "rank", f"{name}.png") if name else None
 
 
 def with_labels(info: ServiceRankInfo, name_en: str, name_ru: str) -> ServiceRankInfo:
