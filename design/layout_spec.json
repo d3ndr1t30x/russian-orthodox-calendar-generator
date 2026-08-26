@@ -1,0 +1,14 @@
+{
+  "page": {"size": "A4", "orientation": "landscape", "width_mm": 297.0, "height_mm": 210.0},
+  "margins_mm": {"left": 7.1, "right": 7.1, "top": 5.1, "bottom": 5.1},
+  "weekday_strip_mm": 4.6,
+  "month_title_mm": 15.5,
+  "footer_mm": 4.2,
+  "columns": 7,
+  "column_width_mm": 40.4,
+  "first_weekday": "sunday",
+  "cell_padding_mm": 1.8,
+  "border_pt": 0.55,
+  "minimum_cell_height_mm": 25.0,
+  "legend_strategy": "integrated_blank_cells_or_compact_grid_band"
+}

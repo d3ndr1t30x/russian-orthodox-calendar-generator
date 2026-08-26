@@ -1,0 +1,13 @@
+{
+  "serif": {"family": "Noto Serif", "embedded": true},
+  "sans": {"family": "Noto Sans", "embedded": true, "reference_equivalent": "Arial Narrow"},
+  "month_title_pt": 28,
+  "weekday_pt": 7.5,
+  "civil_date_pt": 21,
+  "old_style_date_pt": 9,
+  "sunday_heading_pt": 6.8,
+  "feast_pt": 6.7,
+  "body_pt": 5.8,
+  "annotation_pt": 5.5,
+  "line_leading_factor": 1.15
+}

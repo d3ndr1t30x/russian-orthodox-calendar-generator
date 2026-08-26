@@ -20,7 +20,7 @@ def main(path: str) -> int:
         if not valid_a4:
             raise SystemExit(f"Page {index} is not A4: {width} x {height} pt")
     first_page = reader.pages[0].extract_text() or ""
-    if "JANUARY" not in first_page and "ЯНВАРЬ" not in first_page:
+    if "January" not in first_page and "Январь" not in first_page:
         raise SystemExit("January heading was not extractable in English or Russian")
     print(f"Verified {pdf}: 12 A4 pages, readable vector text")
     return 0

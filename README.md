@@ -1,5 +1,17 @@
 # Russian Orthodox Calendar Generator
 
+Version 1.4.0 uses an A4 landscape, Sunday-first publication layout reverse-
+engineered from the supplied bilingual calendar reference. The renderer keeps
+calendar content dynamic while matching the reference's typography, grid,
+colours, icons, fasting washes, and compact legends.
+
+The measured design specification is in [`design/`](design). Generate a stress
+month and optional reference comparison with:
+
+```powershell
+.\.venv\Scripts\python.exe tools\visual_regression.py --reference-page path\to\rendered-reference-page.png
+```
+
 A Windows desktop application for producing print-ready Russian Orthodox calendars in English or Russian, with Australian public holidays kept separate from liturgical observances.
 
 ![A4 landscape calendar preview](docs/images/calendar-preview.png)
@@ -20,7 +32,7 @@ A Windows desktop application for producing print-ready Russian Orthodox calenda
 ## Install the Windows release
 
 1. Open the repository's **Releases** page.
-2. Download `RussianOrthodoxCalendar-1.3.0-windows-x64.zip`.
+2. Download `RussianOrthodoxCalendar-1.4.0-windows-x64.zip`.
 3. Extract the complete archive.
 4. Run `RussianOrthodoxCalendar.exe`.
 

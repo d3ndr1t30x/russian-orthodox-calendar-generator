@@ -1,0 +1,9 @@
+{
+  "rank_icon_mm": 4.1,
+  "fasting_icon_mm": 3.7,
+  "placement": "upper-right of day cell on the date baseline",
+  "family": "bundled transparent raster glyphs with consistent optical size",
+  "rank_precedence": ["GREAT_FEAST", "VIGIL", "POLYELEOS", "DOXOLOGY", "SIX_STICHERA", "NO_SIGN"],
+  "fasting_permissions": ["fish", "wine", "oil", "strict_fast"],
+  "notes": "Rank and fasting icons are rendered independently and may coexist."
+}

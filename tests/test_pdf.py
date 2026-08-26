@@ -17,7 +17,7 @@ def test_annual_pdf_is_twelve_a4_pages_and_contains_cyrillic(tmp_path):
     assert len(reader.pages) == 12
     width = float(reader.pages[0].mediabox.width); height = float(reader.pages[0].mediabox.height)
     assert abs(width - A4[1]) < 0.1 and abs(height - A4[0]) < 0.1
-    assert "JANUARY" in (reader.pages[0].extract_text() or "")
+    assert "January" in (reader.pages[0].extract_text() or "")
 
 
 def test_selected_month_and_landscape(tmp_path):
@@ -34,7 +34,7 @@ def test_russian_pdf_uses_cyrillic_source_text_and_embedded_images(tmp_path):
     output = tmp_path / "russian.pdf"
     PdfRenderer().render(output, days, PdfOptions(2027, "Queensland", language="Russian", months=[1]))
     reader = PdfReader(output); text = reader.pages[0].extract_text() or ""
-    assert "ЯНВАРЬ" in text and "Святитель Иоанн" in text
+    assert "Январь" in text and "Святитель Иоанн" in text
     assert "/XObject" in reader.pages[0]["/Resources"]
 
 
