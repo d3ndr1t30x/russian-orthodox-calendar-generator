@@ -7,12 +7,12 @@ from PySide6.QtCore import QDate, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QPixmap
 from PySide6.QtWidgets import (
     QCalendarWidget, QComboBox, QDialog, QFormLayout, QFrame, QHBoxLayout,
-    QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton,
+    QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton,
     QScrollArea, QSizePolicy, QSplitter, QTextEdit, QToolButton, QVBoxLayout, QWidget,
 )
 
 from orthodox_calendar.database.database import Database
-from orthodox_calendar.models import CalendarDay, FastLevel, Fasting, ServiceRank, ServiceRankInfo
+from orthodox_calendar.models import CalendarDay, FastLevel, Fasting, Saint, ServiceRank, ServiceRankInfo, Source
 from orthodox_calendar.projects.model import feast_key, saint_key
 from orthodox_calendar.service_ranks import icon_path_for, labels_for
 
@@ -80,6 +80,7 @@ class CalendarEditor(QDialog):
         self.calendar.selectionChanged.connect(self.load_date)
 
         self.heading = QLabel(); self.heading.setWordWrap(True); self.heading.setStyleSheet("font-size: 17pt; font-weight: 700; color: #782535")
+        self.edit_status = QLabel(); self.edit_status.setStyleSheet("font-weight:600;color:#555555;padding:2px 0")
         self.gregorian, self.julian, self.liturgical = QLabel(), QLabel(), QLabel()
         date_widget = QWidget(); date_form = QFormLayout(date_widget)
         date_form.addRow("Gregorian:", self.gregorian); date_form.addRow("Julian / Church:", self.julian); date_form.addRow("Liturgical week / tone:", self.liturgical)
@@ -89,10 +90,15 @@ class CalendarEditor(QDialog):
         self.search = QLineEdit(); self.search.setPlaceholderText("Search saints on this date..."); self.search.textChanged.connect(self._filter_saints)
         self.selection_filter = QComboBox(); self.selection_filter.addItems(["All", "Selected", "Unselected"]); self.selection_filter.currentTextChanged.connect(self._filter_saints)
         self.category_filter = QComboBox(); self.category_filter.currentTextChanged.connect(self._filter_saints)
-        self.selection_help = QLabel("Checked saints are printed. The first checked saint is primary. Drag to reorder; double-click a name to edit it."); self.selection_help.setWordWrap(True)
+        self.selection_help = QLabel("Checked saints are published. Choose the featured saint explicitly, drag to reorder, or double-click a name to edit it."); self.selection_help.setWordWrap(True)
+        self.primary_saint = QComboBox(); self.primary_saint.setMinimumWidth(230)
+        self.primary_saint.currentIndexChanged.connect(self._refresh_saint_visuals)
+        self.add_saint_button = QPushButton("Add Additional Saint..."); self.add_saint_button.clicked.connect(self.add_saint)
         saints_widget = QWidget(); saints_layout = QVBoxLayout(saints_widget); saints_layout.setContentsMargins(0, 0, 0, 0)
         filters = QHBoxLayout(); filters.addWidget(self.search, 1); filters.addWidget(self.selection_filter); filters.addWidget(self.category_filter)
-        saints_layout.addLayout(filters); saints_layout.addWidget(self.selection_help); saints_layout.addWidget(self.saints)
+        primary_form = QFormLayout(); primary_form.addRow("Primary / featured saint:", self.primary_saint)
+        saint_actions = QHBoxLayout(); saint_actions.addWidget(self.add_saint_button); saint_actions.addStretch()
+        saints_layout.addLayout(filters); saints_layout.addWidget(self.selection_help); saints_layout.addLayout(primary_form); saints_layout.addLayout(saint_actions); saints_layout.addWidget(self.saints)
 
         self.feasts = QListWidget(); self.feasts.setMinimumHeight(95)
         feast_help = QLabel("Uncheck a feast to hide it; double-click its name to edit it."); feast_help.setWordWrap(True)
@@ -130,7 +136,7 @@ class CalendarEditor(QDialog):
         expand_all, collapse_all = QPushButton("Expand All"), QPushButton("Collapse All")
         expand_all.clicked.connect(lambda: self.set_all_sections(True)); collapse_all.clicked.connect(lambda: self.set_all_sections(False))
         section_controls = QHBoxLayout(); section_controls.addWidget(expand_all); section_controls.addWidget(collapse_all); section_controls.addStretch()
-        right_content = QWidget(); right_layout = QVBoxLayout(right_content); right_layout.addWidget(self.heading); right_layout.addWidget(self.rank_banner); right_layout.addLayout(section_controls)
+        right_content = QWidget(); right_layout = QVBoxLayout(right_content); right_layout.addWidget(self.heading); right_layout.addWidget(self.edit_status); right_layout.addWidget(self.rank_banner); right_layout.addLayout(section_controls)
         for section in self.sections: right_layout.addWidget(section)
         right_layout.addStretch()
         right_scroll = QScrollArea(); right_scroll.setWidgetResizable(True); right_scroll.setWidget(right_content)
@@ -171,6 +177,8 @@ class CalendarEditor(QDialog):
         if not self.current: return
         day = self.current; self._updating = True
         self.heading.setText(day.civil_date.strftime("%A, %d %B %Y").upper())
+        self.edit_status.setText("✎ Edited from default calendar data" if day.is_edited else "Default calendar data")
+        self.edit_status.setStyleSheet(f"font-weight:600;color:{'#8B1E2D' if day.is_edited else '#555555'};padding:2px 0")
         self.gregorian.setText(day.civil_date.strftime("%d %B %Y")); self.julian.setText(day.julian_date.strftime("%d %B %Y") + " O.S.")
         tone = f"Tone {day.tone}" if day.tone else ""; self.liturgical.setText(" · ".join(part for part in (day.liturgical_week, tone) if part) or "Not supplied")
         rank = day.service_rank; index = self.service_rank.findData(rank.normalized_rank.value) if rank.user_override else 0; self.service_rank.setCurrentIndex(max(0, index))
@@ -187,6 +195,7 @@ class CalendarEditor(QDialog):
             item.setFlags(item.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsEditable | Qt.ItemIsDragEnabled); item.setCheckState(Qt.Checked if saint.selected else Qt.Unchecked); self.saints.addItem(item)
         if not day.saints:
             item = QListWidgetItem("Authoritative saint data has not been imported for this year."); item.setFlags(Qt.NoItemFlags); self.saints.addItem(item)
+        self._refresh_primary_options(day.primary_saint_id or day.default_primary_saint_id)
         self.fasting_level.setCurrentIndex(self.fasting_level.findData(day.fasting.level.value) if day.fasting else self.fasting_level.findData(FastLevel.FREE.value))
         self.fasting_period.setText(day.fasting.period if day.fasting else ""); self.fasting_detail.setText(day.fasting.detail if day.fasting else "")
         self.custom_note.setPlainText("\n".join(day.notes)); self.holidays.clear()
@@ -209,18 +218,44 @@ class CalendarEditor(QDialog):
         self.rank_icon.setPixmap(pixmap.scaled(QSize(28, 28), Qt.KeepAspectRatio, Qt.SmoothTransformation) if not pixmap.isNull() else pixmap); self.rank_icon.setToolTip(self.rank_text.text())
 
     def _saint_changed(self, _item) -> None:
-        if not self._updating: self._refresh_saint_visuals(); self._filter_saints()
+        if not self._updating: self._refresh_primary_options(); self._refresh_saint_visuals(); self._filter_saints()
 
-    def _saints_reordered(self, *_args) -> None: self._refresh_saint_visuals()
+    def _saints_reordered(self, *_args) -> None: self._refresh_primary_options(); self._refresh_saint_visuals()
+
+    def add_saint(self) -> None:
+        if not self.current: return
+        name, accepted = QInputDialog.getText(self, "Add Additional Saint", "Saint or commemoration name:")
+        name = name.strip()
+        if not accepted or not name: return
+        if any(item.display_name.casefold() == name.casefold() for item in self.current.saints):
+            QMessageBox.information(self, "Saint already listed", "That saint or commemoration is already available on this day."); return
+        saint = Saint(None, name, name, self.current.civil_date, source=Source("User project"), selected=True,
+                      display_order=self.saints.count(), source_order=10_000 + self.saints.count())
+        self.current.saints.append(saint)
+        item = QListWidgetItem(name); item.setData(Qt.UserRole, saint_key(saint)); item.setData(Qt.UserRole + 1, "Saint")
+        item.setFlags(item.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsEditable | Qt.ItemIsDragEnabled); item.setCheckState(Qt.Checked)
+        self.saints.addItem(item); self._refresh_primary_options(); self._refresh_saint_visuals(); self._filter_saints()
+
+    def _refresh_primary_options(self, preferred: str | None = None) -> None:
+        if self._updating and preferred is None: return
+        current = preferred or self.primary_saint.currentData()
+        self.primary_saint.blockSignals(True); self.primary_saint.clear()
+        for row in range(self.saints.count()):
+            item = self.saints.item(row); stable_id = item.data(Qt.UserRole)
+            if stable_id and item.checkState() == Qt.Checked:
+                self.primary_saint.addItem(item.text(), stable_id)
+        index = self.primary_saint.findData(current)
+        self.primary_saint.setCurrentIndex(index if index >= 0 else (0 if self.primary_saint.count() else -1))
+        self.primary_saint.blockSignals(False)
 
     def _refresh_saint_visuals(self) -> None:
-        self._updating = True; primary_found = False
+        self._updating = True; primary_id = self.primary_saint.currentData()
         for row in range(self.saints.count()):
             item = self.saints.item(row)
             if not item.data(Qt.UserRole): continue
-            checked = item.checkState() == Qt.Checked; primary = checked and not primary_found; primary_found = primary_found or primary
+            checked = item.checkState() == Qt.Checked; primary = checked and item.data(Qt.UserRole) == primary_id
             font = QFont(item.font()); font.setBold(primary); item.setFont(font); item.setForeground(QColor("#185C37") if checked else QColor("#777777"))
-            item.setToolTip("Primary commemoration; printed first" if primary else ("Selected for PDF" if checked else "Explicitly hidden in this project"))
+            item.setToolTip("Primary / featured saint; published first" if primary else ("Selected for PDF and Word" if checked else "Explicitly hidden in this project"))
         self._updating = False
 
     def _filter_saints(self, *_args) -> None:
@@ -234,6 +269,7 @@ class CalendarEditor(QDialog):
     def editor_state(self):
         return (
             tuple((self.saints.item(row).data(Qt.UserRole), self.saints.item(row).text(), self.saints.item(row).checkState() == Qt.Checked) for row in range(self.saints.count()) if self.saints.item(row).data(Qt.UserRole)),
+            self.primary_saint.currentData(),
             tuple((self.feasts.item(row).data(Qt.UserRole), self.feasts.item(row).text(), self.feasts.item(row).checkState() == Qt.Checked) for row in range(self.feasts.count())),
             self.service_rank.currentData(), self.fasting_level.currentData(), self.fasting_period.text(), self.fasting_detail.text(), self.custom_note.toPlainText(),
         )
@@ -252,13 +288,13 @@ class CalendarEditor(QDialog):
 
     def _apply_widgets_to_current(self) -> str | None:
         if not self.current: return None
-        by_key = {saint_key(item): item for item in self.current.saints}; primary_id = None
+        by_key = {saint_key(item): item for item in self.current.saints}; primary_id = self.primary_saint.currentData()
         for row in range(self.saints.count()):
             item = self.saints.item(row); stable_id = item.data(Qt.UserRole); saint = by_key.get(stable_id)
             if not saint: continue
             saint.selected = item.checkState() == Qt.Checked; saint.display_name = item.text().strip() or saint.display_name; saint.display_order = row
-            if saint.selected and primary_id is None: primary_id = stable_id
             if self.on_project_edit is None and self.database is not None and saint.id is not None: self.database.set_saint_override(self.current.civil_date, saint.id, saint.selected, saint.display_name, row)
+        self.current.primary_saint_id = primary_id or ""
         feast_by_key = {feast_key(item, self.current.civil_date): item for item in self.current.feasts}; updated_feasts = []
         for row in range(self.feasts.count()):
             item = self.feasts.item(row)

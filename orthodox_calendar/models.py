@@ -56,6 +56,8 @@ class Saint:
     display_order: int = 0
     service_rank: ServiceRank = ServiceRank.NONE
     source_rank_text: str = ""
+    source_order: int = 0
+    source_primary: bool = False
 
 
 @dataclass(slots=True)
@@ -112,3 +114,6 @@ class CalendarDay:
     paschal_offset: int | None = None
     authoritative_data_available: bool = False
     service_rank: ServiceRankInfo = field(default_factory=ServiceRankInfo)
+    default_primary_saint_id: str = ""
+    primary_saint_id: str = ""
+    is_edited: bool = False

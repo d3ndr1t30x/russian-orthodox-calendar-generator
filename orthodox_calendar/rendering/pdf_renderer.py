@@ -17,6 +17,7 @@ from orthodox_calendar.models import CalendarDay, FastLevel, ServiceRank, Servic
 from orthodox_calendar.paths import asset_path
 from orthodox_calendar.service_ranks import icon_name_for, localized_rank_name
 from .layout import REFERENCE_LAYOUT, ReferenceLayout
+from .publication import is_primary_saint, ordered_selected_saints
 
 
 MONTHS_RU = ("", "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь")
@@ -209,8 +210,8 @@ class DayCellRenderer:
         entries: list[tuple[str, str, bool]] = []
         for feast in day.feasts:
             entries.append((feast.name, "feast", feast.rank.value == "Great Feast"))
-        for saint in (saint for saint in day.saints if saint.selected):
-            entries.append((saint.display_name, "saint", saint.service_rank in {ServiceRank.VIGIL, ServiceRank.POLYELEOS}))
+        for saint in ordered_selected_saints(day):
+            entries.append((saint.display_name, "saint", is_primary_saint(day, saint) or saint.service_rank in {ServiceRank.VIGIL, ServiceRank.POLYELEOS}))
         for note in day.notes:
             entries.append((note, "note", False))
 
@@ -221,7 +222,7 @@ class DayCellRenderer:
                 omitted += 1
                 continue
             major = kind == "feast" and (state in {"great_feast", "vigil"} or prominent)
-            font = self.fonts["sans_bold"] if major or kind == "note" else self.fonts["sans"]
+            font = self.fonts["sans_bold"] if major or prominent or kind == "note" else self.fonts["sans"]
             size = 6.4 if major else (5.5 if kind == "note" else 5.75)
             lines = TextFitter.lines(text, font, size, text_width, min(3 if major else 2, available))
             c.setFillColor(self.palette.note if kind == "note" else (self.palette.feast if major or prominent else self.palette.ink))

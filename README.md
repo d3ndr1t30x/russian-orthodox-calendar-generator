@@ -1,6 +1,6 @@
 # Russian Orthodox Calendar Generator
 
-Version 1.6.0 adds interactive calendar-day editing and safe project reset controls to the portable `.rocproject` workflow and A4 landscape, Sunday-first publication layout reverse-
+Version 1.7.0 adds direct editable Word export, explicit primary saints and derived edited-day indicators to the portable `.rocproject` workflow and A4 landscape, Sunday-first publication layout reverse-
 engineered from the supplied bilingual calendar reference. The renderer keeps
 calendar content dynamic while matching the reference's typography, grid,
 colours, icons, fasting washes, and compact legends.
@@ -18,13 +18,14 @@ A Windows desktop application for producing print-ready Russian Orthodox calenda
 
 ## Highlights
 
-- Twelve-page A4 landscape PDF by default, with optional portrait output.
+- Twelve-page A4 landscape PDF plus a directly generated, editable Word calendar.
 - Original English and Russian Holy Trinity source content; Russian liturgical text is not machine-translated.
 - Gregorian civil dates and Julian church dates.
 - Source-derived Typikon service ranks: Great Feast, Vigil, Polyeleos, Doxology, Six Stichera and No Sign.
 - Distinct, bundled service-rank and fasting-permission icons that remain available offline.
 - Great Feast/Vigil pink washes, strict-fast grey washes and restrained print-friendly styling.
 - Select, deselect, search and reorder saints before publication.
+- Deterministic source-derived default primary saints, explicit primary selection and project-only added saints.
 - Australian state and territory public holidays using `python-holidays`.
 - SQLite provenance, bilingual source records, cache-first synchronization and user overrides.
 - Standalone Windows distribution: end users do not need Python or the legacy .NET application.
@@ -33,11 +34,12 @@ A Windows desktop application for producing print-ready Russian Orthodox calenda
 - Whole-cell hover highlighting, exact-date double-click editing and day context menus.
 - Responsive, resizable editor with scrolling, collapsible sections and persistent Save Edits / Cancel / Reset Day actions.
 - Project-only Reset Day, Reset Month and strongly confirmed Reset Year operations.
+- Derived edited-day tracking with a small tooltip-bearing pencil indicator and live edited-day count.
 
 ## Install the Windows release
 
 1. Open the repository's **Releases** page.
-2. Download `RussianOrthodoxCalendar-1.6.0-windows-x64.zip`.
+2. Download `RussianOrthodoxCalendar-1.7.0-windows-x64.zip`.
 3. Extract the complete archive.
 4. Run `RussianOrthodoxCalendar.exe`.
 
@@ -47,9 +49,9 @@ Keep the EXE and its `_internal` directory together. Writable data is stored und
 
 1. Choose **File > New Project** (`Ctrl+N`). Select the Gregorian year, Australian state or territory, English or Russian, template and A4 orientation. The current computer year is the default, but any supported year can be entered.
 2. If authoritative annual data is unavailable, use the offered **Sync Calendar Data** or **Import Data** action. The application does not silently substitute invented saint data.
-3. Choose **Edit Calendar**. On each date, check or uncheck saints, drag them into the required order, edit displayed names, feasts, fasting and service rank, and add project notes. The first checked saint is the primary commemoration.
+3. Choose **Edit Calendar**. On each date, check or uncheck saints, add a project saint, drag entries into the required order, explicitly choose the primary/featured saint, and edit displayed names, feasts, fasting, service rank and project notes.
 4. Choose **File > Save Project** (`Ctrl+S`). A new project receives a suggested `.rocproject` filename. Use **Save Project As** (`Ctrl+Shift+S`) for independently editable variants.
-5. Preview and **Export PDF** use the current in-memory edits. Export does not silently save the project; an asterisk in the title continues to indicate unsaved work.
+5. Preview, **Export PDF** and **Export Editable Word Document** use the same resolved in-memory edits. Export does not silently save the project; an asterisk in the title continues to indicate unsaved work.
 
 Open an existing document with **File > Open Project** (`Ctrl+O`), the Recent Projects submenu, or by passing its filename to the application:
 
@@ -61,13 +63,15 @@ The saved year, jurisdiction, language, saint selections and exclusions, exact o
 
 The annual viewer is directly interactive: hover anywhere over a date to outline its complete cell, single-click to select it, and double-click to open that exact date in the day editor. Service ranks appear as icon plus text in both the viewer and the editor's always-visible rank banner. The editor can be resized, minimized or maximized; its detail sections can be expanded or collapsed and remain reachable through scrolling at smaller window sizes.
 
+Days whose effective saint selection/order, primary saint, feast, rank, fasting or notes differ from the saved authoritative snapshot show a small pencil. Its tooltip identifies the day as edited. Merely opening or saving an unchanged day does not create an edit. Reset recalculates the state immediately and removes the pencil when defaults are restored.
+
 **Save Edits** applies one editor transaction to the in-memory project and marks the project dirty. It does not write the `.rocproject`; use **File > Save Project** for that operation. A validated disk save displays an explicit **Project Saved** confirmation, while failures retain the dirty state and show the reason.
 
 Use **Edit > Reset Day**, **Reset Month**, or **Reset Year** to remove project overrides and reconstruct dates from the source snapshot already stored in that project. These actions never synchronize, alter SQLite source records, or affect another project. Day and month resets identify their scope and affected-day count. Reset Year additionally requires typing `RESET <year>`.
 
 ## Project files, portability and recovery
 
-A `.rocproject` file is readable, indented JSON with `project_schema_version: 1`. It contains project metadata, one annual source snapshot, source version/provenance, explicit overrides and publication settings. It is the editable publication document; the application SQLite database remains the authoritative/reference store and is never overwritten by project edits.
+A `.rocproject` file is readable, indented JSON with `project_schema_version: 2`. It contains project metadata, one annual source snapshot, deterministic default primary-saint identity, source version/provenance, explicit overrides and publication settings. Version-1 projects migrate automatically when opened. Edited status is derived from effective state rather than stored as a stale flag.
 
 Project writes are atomic. Before an existing file is replaced, one `.rocproject.bak` copy is retained. While changes are unsaved, the application periodically writes a separate `.rocproject.recovery` file and offers Recover or Discard when that project is next opened. These files never silently replace the main document.
 
@@ -96,10 +100,12 @@ Useful command-line operations:
 # Generate English and Russian calendars
 .\.venv\Scripts\python.exe app.py --generate-pdf --year 2027 --state QLD --language English
 .\.venv\Scripts\python.exe app.py --generate-pdf --year 2027 --state QLD --language Russian
+.\.venv\Scripts\python.exe app.py --generate-docx --year 2027 --state QLD --language English --output calendar.docx
 
 # Reopen a saved project or generate its exact saved publication
 .\.venv\Scripts\python.exe app.py "C:\Calendars\2027 Queensland.rocproject"
 .\.venv\Scripts\python.exe app.py --project "C:\Calendars\2027 Queensland.rocproject" --generate-pdf --output calendar.pdf
+.\.venv\Scripts\python.exe app.py --project "C:\Calendars\2027 Queensland.rocproject" --generate-docx --output calendar.docx
 
 # Use only previously downloaded source pages
 .\.venv\Scripts\python.exe app.py --sync-holy-trinity --year 2027 --cache-only
@@ -122,7 +128,7 @@ The synchronizer is user-initiated, cache-first and conservatively rate-limited.
 .\build_exe.ps1
 ```
 
-The build script runs the tests, creates the PyInstaller onedir distribution, generates a complete PDF through the compiled EXE, reopens the shipped test project through the EXE, and validates both PDFs' page count, A4 dimensions and extractable text.
+The build script runs the tests, creates the PyInstaller onedir distribution, generates complete PDF and DOCX publications through the compiled EXE, reopens the shipped test project, and validates PDF geometry/text plus genuine editable Word tables.
 
 Primary output:
 
@@ -136,7 +142,7 @@ dist\RussianOrthodoxCalendar\RussianOrthodoxCalendar.exe
 .\.venv\Scripts\python.exe -m pytest
 ```
 
-The suite covers calendar mathematics, Pascha and movable feasts, fasting, all Australian jurisdictions, bilingual source parsing, service-rank normalization and hierarchy, unknown/no-data handling, provenance and overrides, editor selection states, project round trips, selection/exclusion/order/primary persistence, save-as, backup/recovery, corrupt files, embedded assets, project PDF output, Cyrillic output and annual PDF validation.
+The suite covers calendar mathematics, Pascha and movable feasts, fasting, all Australian jurisdictions, bilingual source parsing, service-rank normalization and hierarchy, provenance and overrides, deterministic primary saints, no-op semantic comparisons, edited indicators/reset behavior, project round trips, Word/PDF consistency, Cyrillic DOCX output, save/recovery and annual publication validation.
 
 ## Data scope
 

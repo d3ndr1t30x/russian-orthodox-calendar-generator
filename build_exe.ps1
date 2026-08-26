@@ -10,6 +10,7 @@ $ReleaseDir = Join-Path $ProjectRoot 'dist\RussianOrthodoxCalendar'
 $ReleaseExe = Join-Path $ReleaseDir 'RussianOrthodoxCalendar.exe'
 $SmokePdf = Join-Path $ProjectRoot 'output\pdf\EXE_Smoke_Test_2027_QLD.pdf'
 $ProjectSmokePdf = Join-Path $ProjectRoot 'output\pdf\EXE_Project_Smoke_Test_2027_QLD.pdf'
+$ProjectSmokeDocx = Join-Path $ProjectRoot 'output\docx\EXE_Project_Smoke_Test_2027_QLD.docx'
 $FixtureProject = Join-Path $ProjectRoot 'tests\fixtures\sample_calendar.rocproject'
 
 Set-Location -LiteralPath $ProjectRoot
@@ -37,6 +38,7 @@ if (Test-Path -LiteralPath $ReleaseDir) { Remove-Item -LiteralPath $ReleaseDir -
     --add-data "orthodox_calendar\database\schema.sql;orthodox_calendar\database" `
     --collect-all holidays `
     --collect-all reportlab `
+    --collect-all docx `
     --hidden-import PySide6.QtPdf `
     --hidden-import PySide6.QtPdfWidgets `
     (Join-Path $ProjectRoot 'app.py')
@@ -55,10 +57,18 @@ $ProjectProcess = Start-Process -FilePath $ReleaseExe -ArgumentList @('--project
 if ($ProjectProcess.ExitCode -ne 0) { throw "Packaged project smoke test failed with exit code $($ProjectProcess.ExitCode)." }
 & $VenvPython (Join-Path $ProjectRoot 'verify_release.py') $ProjectSmokePdf
 if ($LASTEXITCODE -ne 0) { throw 'The packaged executable produced an invalid project PDF.' }
+if (Test-Path -LiteralPath $ProjectSmokeDocx) { Remove-Item -LiteralPath $ProjectSmokeDocx -Force }
+$DocxParent = Split-Path -Parent $ProjectSmokeDocx
+if (-not (Test-Path -LiteralPath $DocxParent)) { New-Item -ItemType Directory -Path $DocxParent | Out-Null }
+$DocxProcess = Start-Process -FilePath $ReleaseExe -ArgumentList @('--project',('"' + $FixtureProject + '"'),'--generate-docx','--output',('"' + $ProjectSmokeDocx + '"')) -Wait -PassThru -WindowStyle Hidden
+if ($DocxProcess.ExitCode -ne 0) { throw "Packaged project DOCX smoke test failed with exit code $($DocxProcess.ExitCode)." }
+& $VenvPython (Join-Path $ProjectRoot 'verify_docx.py') $ProjectSmokeDocx --expect 'TEST PARISH DIVINE LITURGY'
+if ($LASTEXITCODE -ne 0) { throw 'The packaged executable produced an invalid DOCX.' }
 $GuiProcess = Start-Process -FilePath $ReleaseExe -ArgumentList @('--gui-smoke-test','--project',('"' + $FixtureProject + '"')) -Wait -PassThru -WindowStyle Hidden
 if ($GuiProcess.ExitCode -ne 0) { throw "Packaged GUI project launch/close test failed with exit code $($GuiProcess.ExitCode)." }
 
 Write-Host "BUILD VERIFIED: $ReleaseExe"
 Write-Host "EXE-GENERATED PDF VERIFIED: $SmokePdf"
 Write-Host "EXE PROJECT REOPEN/PDF VERIFIED: $ProjectSmokePdf"
+Write-Host "EXE PROJECT REOPEN/DOCX VERIFIED: $ProjectSmokeDocx"
 Write-Host "EXE GUI PROJECT LAUNCH/CLOSE VERIFIED"

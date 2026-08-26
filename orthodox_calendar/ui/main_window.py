@@ -20,9 +20,10 @@ from orthodox_calendar.config import Settings, SettingsStore
 from orthodox_calendar.data_sources.importer import CalendarImporter
 from orthodox_calendar.database.database import Database
 from orthodox_calendar.models import CalendarDay, FastLevel, ServiceRank
-from orthodox_calendar.paths import ensure_user_dirs
+from orthodox_calendar.paths import asset_path, ensure_user_dirs
 from orthodox_calendar.projects import CalendarProject, ProjectSettings, ProjectStore, ProjectValidationError
 from orthodox_calendar.rendering.pdf_renderer import PdfOptions, PdfRenderer
+from orthodox_calendar.rendering.docx_renderer import DocxRenderer
 from orthodox_calendar.services.synchronization import SynchronizationService
 from orthodox_calendar.service_ranks import icon_path_for, labels_for
 from .calendar_editor import CalendarEditor
@@ -33,6 +34,21 @@ from .source_dialog import SourceDialog
 
 
 LOG = logging.getLogger(__name__)
+
+
+class EditIndicator(QLabel):
+    """Small tooltip-bearing overlay that preserves whole-cell interaction."""
+    def mousePressEvent(self, event) -> None:
+        parent = self.parentWidget()
+        if event.button() == Qt.LeftButton and isinstance(parent, DayCell):
+            parent.daySelected.emit(parent.day.civil_date); event.accept(); return
+        super().mousePressEvent(event)
+
+    def mouseDoubleClickEvent(self, event) -> None:
+        parent = self.parentWidget()
+        if event.button() == Qt.LeftButton and isinstance(parent, DayCell):
+            parent.editRequested.emit(parent.day.civil_date); event.accept(); return
+        super().mouseDoubleClickEvent(event)
 
 
 class DayCell(QToolButton):
@@ -46,6 +62,12 @@ class DayCell(QToolButton):
         self.setText(f"{day.civil_date.day}\n{self.rank_text}")
         rank_path = icon_path_for(day.service_rank)
         if rank_path and rank_path.exists(): self.setIcon(QIcon(str(rank_path)))
+        self.edit_indicator = EditIndicator(self); self.edit_indicator.setFixedSize(16, 16); self.edit_indicator.setAlignment(Qt.AlignCenter)
+        edit_path = asset_path("icons", "edit.svg")
+        if day.is_edited and edit_path.exists():
+            self.edit_indicator.setPixmap(QIcon(str(edit_path)).pixmap(QSize(13, 13)))
+            self.edit_indicator.setToolTip(f"{day.civil_date:%B %d, %Y}\nEdited from default calendar data")
+        self.edit_indicator.setVisible(day.is_edited)
         self.setIconSize(QSize(16, 16)); self.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
         self.setMinimumSize(48, 55); self.setCursor(Qt.PointingHandCursor)
         self.clicked.connect(lambda: self.daySelected.emit(self.day.civil_date))
@@ -54,7 +76,12 @@ class DayCell(QToolButton):
     def _tooltip(self) -> str:
         saints = ", ".join(item.display_name for item in self.day.saints if item.selected) or "No selected saints"
         rank = self.rank_text or labels_for(self.day.service_rank.normalized_rank)[0]
-        return f"{self.day.civil_date:%A, %d %B %Y}\nService rank: {rank}\n{saints}\nDouble-click to edit"
+        edited = "\nEdited from default calendar data" if self.day.is_edited else ""
+        return f"{self.day.civil_date:%A, %d %B %Y}\nService rank: {rank}\n{saints}{edited}\nDouble-click to edit"
+
+    def resizeEvent(self, event) -> None:
+        self.edit_indicator.move(max(2, self.width() - self.edit_indicator.width() - 2), 2)
+        super().resizeEvent(event)
 
     def _apply_style(self) -> None:
         major = self.day.service_rank.normalized_rank in {ServiceRank.GREAT_FEAST, ServiceRank.VIGIL}
@@ -122,7 +149,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.database, self.settings, self.store = database, settings, store
         self.check_data_updates = check_data_updates
-        self.engine, self.renderer = OrthodoxCalendarEngine(database), PdfRenderer()
+        self.engine, self.renderer, self.docx_renderer = OrthodoxCalendarEngine(database), PdfRenderer(), DocxRenderer()
         paths = ensure_user_dirs(); self.project_store = ProjectStore(paths["cache"] / "recovery")
         self.project: CalendarProject | None = None; self.days: list[CalendarDay] = []; self._loading_ui = False; self.selected_date: date | None = None
         self.resize(1250, 860); self.setMinimumSize(960, 680)
@@ -158,6 +185,7 @@ class MainWindow(QMainWindow):
         self.close_project_action = QAction("Close Project", self, shortcut="Ctrl+W", triggered=self.close_project)
         self.project_info_action = QAction("Project Information", self, triggered=self.show_project_information)
         self.export_action = QAction("Export PDF...", self, triggered=self.generate_pdf)
+        self.export_word_action = QAction("Export Editable Word Document...", self, triggered=self.generate_docx)
         self.exit_action = QAction("Exit", self, triggered=self.close)
         self.reset_day_action = QAction("Reset Day", self, triggered=self.reset_selected_day)
         self.reset_month_action = QAction("Reset Month", self, triggered=self.reset_selected_month)
@@ -168,7 +196,7 @@ class MainWindow(QMainWindow):
     def _build_menu(self) -> None:
         file_menu = self.menuBar().addMenu("&File")
         for action in (self.new_action, self.open_action, self.save_action, self.save_as_action, self.close_project_action): file_menu.addAction(action)
-        self.recent_menu = file_menu.addMenu("Recent Projects"); file_menu.addAction(self.project_info_action); file_menu.addSeparator(); file_menu.addAction(self.export_action); file_menu.addSeparator(); file_menu.addAction(self.exit_action)
+        self.recent_menu = file_menu.addMenu("Recent Projects"); file_menu.addAction(self.project_info_action); file_menu.addSeparator(); file_menu.addAction(self.export_action); file_menu.addAction(self.export_word_action); file_menu.addSeparator(); file_menu.addAction(self.exit_action)
         self._rebuild_recent_menu()
         edit_menu = self.menuBar().addMenu("&Edit")
         edit_menu.addAction(self.reset_day_action); edit_menu.addAction(self.reset_month_action); edit_menu.addAction(self.reset_year_action)
@@ -303,7 +331,8 @@ class MainWindow(QMainWindow):
         if self.project:
             marker = " *" if self.project.modified else ""; self.setWindowTitle(f"Russian Orthodox Calendar — {self.project.project_name}{marker}")
             status = "Unsaved Changes" if self.project.modified else "Saved"; location = self.project.file_path or "Not yet saved"
-            self.project_status.setText(f"Project: {self.project.project_name}    Status: {status}    Data: {self.project.calendar_data_version}    File: {location}" + (f"\n{message}" if message else ""))
+            edited = sum(1 for day in self.days if day.is_edited)
+            self.project_status.setText(f"Project: {self.project.project_name}    Status: {status}    Edited days: {edited} / {len(self.days)}    Data: {self.project.calendar_data_version}    File: {location}" + (f"\n{message}" if message else ""))
         else:
             self.setWindowTitle("Russian Orthodox Calendar Generator"); self.project_status.setText("No project open — legacy browse/export mode")
         enabled = self.project is not None; self.save_action.setEnabled(enabled); self.save_as_action.setEnabled(enabled); self.close_project_action.setEnabled(enabled); self.project_info_action.setEnabled(enabled)
@@ -431,6 +460,20 @@ class MainWindow(QMainWindow):
             self.renderer.render(output, self.days, self._options()); self.statusBar().showMessage(f"Generated {output}"); QMessageBox.information(self, "Calendar exported", f"Created PDF from the current project state.\n\n{output}\n\nProject changes were not automatically saved.")
         except Exception as exc: LOG.exception("PDF generation failed"); QMessageBox.critical(self, "PDF generation failed", str(exc))
 
+    def generate_docx(self) -> None:
+        if self.project: self._apply_controls_to_project()
+        p = self.project.settings if self.project else self._settings_from_controls()
+        suggested = self._default_output().with_suffix(".docx"); suggested.parent.mkdir(parents=True, exist_ok=True)
+        filename, _ = QFileDialog.getSaveFileName(self, "Export editable Word calendar", str(suggested), "Microsoft Word Document (*.docx)")
+        if not filename: return
+        output = Path(filename).with_suffix(".docx")
+        try:
+            self.docx_renderer.render(output, self.days, self._options())
+            self.statusBar().showMessage(f"Generated {output}")
+            QMessageBox.information(self, "Word calendar exported", f"Created an editable Word document from the current project state.\n\n{output}\n\nProject changes were not automatically saved.")
+        except Exception as exc:
+            LOG.exception("Word generation failed"); QMessageBox.critical(self, "Word generation failed", str(exc))
+
     def preview_pdf(self) -> None:
         if self.project: self._apply_controls_to_project()
         p = self.project.settings if self.project else self._settings_from_controls(); temp = ensure_user_dirs()["cache"] / f"preview_{p.year}_{JURISDICTIONS.get(p.jurisdiction) or 'INT'}.pdf"
@@ -453,7 +496,7 @@ class MainWindow(QMainWindow):
 
     def _project_day_edited(self, day: CalendarDay, primary_id: str | None) -> None:
         if self.project:
-            self.project.update_day(day, primary_id); self.autosave_project(); self._populate_months(); self._update_project_ui()
+            self.project.update_day(day, primary_id); self.days = self.project.resolve_days(); self.autosave_project(); self._populate_months(); self._update_project_ui()
 
     def _project_day_reset(self, civil_date: date) -> None:
         if self.project and self.project.reset_day(civil_date):
@@ -529,7 +572,7 @@ class MainWindow(QMainWindow):
             if dialog.exec(): dialog.apply(); self.store.save(self.settings); self.language.setCurrentText(self.settings.language); self.orientation.setCurrentText(self.settings.orientation)
 
     def about(self) -> None:
-        QMessageBox.about(self, "About", "<h2>Russian Orthodox Calendar Generator</h2><p>Version 1.6.0</p><p>Interactive day cells, a responsive day editor and project-only reset controls complement portable editable .rocproject documents.</p>")
+        QMessageBox.about(self, "About", "<h2>Russian Orthodox Calendar Generator</h2><p>Version 1.7.0</p><p>Editable Word export, explicit primary saints and derived edited-day indicators complement PDF publishing and portable .rocproject documents.</p>")
 
     def run_gui_smoke_test(self) -> None:
         """Exercise packaged viewer/editor UX and exit non-zero on failure."""
@@ -539,12 +582,15 @@ class MainWindow(QMainWindow):
             target = next((date.fromisoformat(key) for key in self.project.overrides), self.days[0].civil_date)
             self.select_day(target); card = self.month_cards[target.month - 1]; cell = card.day_cells[target]
             if cell.icon().isNull() or not cell.rank_text: raise RuntimeError("Viewer rank icon/text was not rendered")
+            if not cell.day.is_edited or cell.edit_indicator.isHidden() or "Edited from default" not in cell.edit_indicator.toolTip(): raise RuntimeError("Edited-day pencil indicator was not rendered")
             cell.hovered = True; cell._apply_style()
             if "#2474B5" not in cell.styleSheet(): raise RuntimeError("Day hover highlight was not applied")
             editor = CalendarEditor(self.days, initial_date=target, source_day_provider=self.project.source_day)
             editor.resize(700, 500); editor.set_all_sections(False); editor.set_all_sections(True); editor.showMaximized(); QApplication.processEvents(); editor.showNormal()
             if editor.rank_icon.pixmap() is None or editor.rank_icon.pixmap().isNull(): raise RuntimeError("Editor rank icon was not rendered")
             if editor.save_button.text() != "Save Edits" or not editor.findChildren(QScrollArea): raise RuntimeError("Editor actions or scrolling are unavailable")
+            if editor.primary_saint.count() < 1 or "Edited from default" not in editor.edit_status.text(): raise RuntimeError("Primary saint or edited status is unavailable")
+            if self.export_word_action.text() != "Export Editable Word Document...": raise RuntimeError("Word export action is unavailable")
             editor.close(); self.project.modified = False; self.close()
         except Exception:
             LOG.exception("Packaged GUI UX smoke test failed"); QApplication.exit(3)

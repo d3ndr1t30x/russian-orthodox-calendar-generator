@@ -19,7 +19,7 @@ from orthodox_calendar.models import (
 )
 
 
-PROJECT_SCHEMA_VERSION = 1
+PROJECT_SCHEMA_VERSION = 2
 SUPPORTED_LANGUAGES = {"English", "Russian"}
 SUPPORTED_TEMPLATES = {"Traditional", "Minimal", "Parish"}
 SUPPORTED_ORIENTATIONS = {"Landscape", "Portrait"}
@@ -62,6 +62,21 @@ def saint_key(saint: Saint) -> str:
     return "fingerprint:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:20]
 
 
+def default_primary_saint_id(day: CalendarDay) -> str:
+    """Choose a deterministic source primary without inventing saint importance."""
+    candidates = [item for item in day.saints if item.selected]
+    if not candidates:
+        return ""
+    explicitly_primary = [item for item in candidates if item.source_primary]
+    chosen = min(explicitly_primary or candidates, key=lambda item: (item.source_order, item.display_order, saint_key(item)))
+    return saint_key(chosen)
+
+
+def primary_saint(day: CalendarDay) -> Saint | None:
+    key = day.primary_saint_id or day.default_primary_saint_id or default_primary_saint_id(day)
+    return next((item for item in day.saints if saint_key(item) == key and item.selected), None)
+
+
 def feast_key(feast: Feast, civil_date: date) -> str:
     raw = f"{civil_date.isoformat()}|{feast.name}|{feast.source.name if feast.source else ''}|{feast.source.url if feast.source else ''}"
     return "fingerprint:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:20]
@@ -75,7 +90,8 @@ def _saint_to_dict(saint: Saint) -> dict[str, Any]:
         "rank": saint.rank, "description": saint.description, "language": saint.language,
         "source": _source_to_dict(saint.source), "selected": saint.selected,
         "display_order": saint.display_order, "service_rank": saint.service_rank.value,
-        "source_rank_text": saint.source_rank_text,
+        "source_rank_text": saint.source_rank_text, "source_order": saint.source_order,
+        "source_primary": saint.source_primary,
     }
 
 
@@ -87,7 +103,8 @@ def _saint_from_dict(data: dict[str, Any], fallback_date: date) -> Saint:
         str(data.get("category", "Saint")), str(data.get("rank", "")), str(data.get("description", "")),
         str(data.get("language", "en")), _source_from_dict(data.get("source")), bool(data.get("selected", True)),
         int(data.get("display_order", 0)), ServiceRank(data.get("service_rank", ServiceRank.NONE.value)),
-        str(data.get("source_rank_text", "")),
+        str(data.get("source_rank_text", "")), int(data.get("source_order", data.get("display_order", 0))),
+        bool(data.get("source_primary", False)),
     )
 
 
@@ -140,6 +157,8 @@ def _rank_from_dict(data: dict[str, Any] | None) -> ServiceRankInfo:
 
 
 def day_to_dict(day: CalendarDay) -> dict[str, Any]:
+    default_primary = day.default_primary_saint_id or default_primary_saint_id(day)
+    resolved_primary = day.primary_saint_id or default_primary
     return {
         "civil_date": day.civil_date.isoformat(), "julian_date": day.julian_date.isoformat(),
         "saints": [_saint_to_dict(item) for item in day.saints],
@@ -149,21 +168,44 @@ def day_to_dict(day: CalendarDay) -> dict[str, Any]:
         "readings": list(day.readings), "notes": list(day.notes), "liturgical_week": day.liturgical_week,
         "tone": day.tone, "paschal_offset": day.paschal_offset,
         "authoritative_data_available": day.authoritative_data_available, "service_rank": _rank_to_dict(day.service_rank),
+        "default_primary_saint_id": default_primary, "primary_saint_id": resolved_primary,
     }
 
 
 def day_from_dict(data: dict[str, Any]) -> CalendarDay:
     civil = date.fromisoformat(data["civil_date"])
-    return CalendarDay(
-        civil, date.fromisoformat(data["julian_date"]),
-        [_saint_from_dict(item, civil) for item in data.get("saints", [])],
-        [_feast_from_dict(item) for item in data.get("feasts", [])],
-        _fasting_from_dict(data.get("fasting")),
-        [PublicHoliday(str(item["name"]), str(item["jurisdiction"]), _source_from_dict(item.get("source")) or Source("Unknown")) for item in data.get("public_holidays", [])],
-        list(data.get("readings", [])), list(data.get("notes", [])), str(data.get("liturgical_week", "")),
-        data.get("tone"), data.get("paschal_offset"), bool(data.get("authoritative_data_available", False)),
-        _rank_from_dict(data.get("service_rank")),
+    day = CalendarDay(
+        civil_date=civil, julian_date=date.fromisoformat(data["julian_date"]),
+        saints=[_saint_from_dict(item, civil) for item in data.get("saints", [])],
+        feasts=[_feast_from_dict(item) for item in data.get("feasts", [])],
+        fasting=_fasting_from_dict(data.get("fasting")),
+        public_holidays=[PublicHoliday(str(item["name"]), str(item["jurisdiction"]), _source_from_dict(item.get("source")) or Source("Unknown")) for item in data.get("public_holidays", [])],
+        readings=list(data.get("readings", [])), notes=list(data.get("notes", [])),
+        liturgical_week=str(data.get("liturgical_week", "")), tone=data.get("tone"),
+        paschal_offset=data.get("paschal_offset"), authoritative_data_available=bool(data.get("authoritative_data_available", False)),
+        service_rank=_rank_from_dict(data.get("service_rank")),
+        default_primary_saint_id=str(data.get("default_primary_saint_id", "")),
+        primary_saint_id=str(data.get("primary_saint_id", "")),
     )
+    day.default_primary_saint_id = day.default_primary_saint_id or default_primary_saint_id(day)
+    day.primary_saint_id = day.primary_saint_id or day.default_primary_saint_id
+    return day
+
+
+def effective_day_state(day: CalendarDay) -> dict[str, Any]:
+    """Comparable publication/editor state; provenance-only differences are ignored."""
+    saints = sorted(day.saints, key=lambda item: (item.display_order, saint_key(item)))
+    return {
+        "saints": [
+            {"stable_id": saint_key(item), "display_name": item.display_name, "selected": item.selected, "display_order": item.display_order}
+            for item in saints
+        ],
+        "primary_saint_id": day.primary_saint_id or day.default_primary_saint_id or default_primary_saint_id(day),
+        "feasts": [{"name": item.name, "rank": item.rank.value, "service_rank": item.service_rank.value} for item in day.feasts],
+        "fasting": None if day.fasting is None else {"level": day.fasting.level.value, "period": day.fasting.period, "detail": day.fasting.detail},
+        "notes": list(day.notes),
+        "service_rank": day.service_rank.normalized_rank.value,
+    }
 
 
 @dataclass(slots=True)
@@ -385,6 +427,11 @@ class CalendarProject:
     def resolve_days(self, current_days: list[CalendarDay] | None = None, update_source: bool = False) -> list[CalendarDay]:
         self.missing_references.clear()
         base = copy.deepcopy(current_days) if update_source and current_days else [day_from_dict(item) for item in self.source_snapshot]
+        for day in base:
+            day.default_primary_saint_id = day.default_primary_saint_id or default_primary_saint_id(day)
+            day.primary_saint_id = day.default_primary_saint_id
+            day.is_edited = False
+        default_states = {day.civil_date.isoformat(): effective_day_state(day) for day in base}
         by_date = {day.civil_date.isoformat(): day for day in base}
         for key, override in self.overrides.items():
             day = by_date.get(key)
@@ -407,6 +454,9 @@ class CalendarProject:
             primary = override.get("primary_saint_id")
             if primary and primary in by_stable:
                 by_stable[primary].selected = True
+                day.primary_saint_id = primary
+            else:
+                day.primary_saint_id = day.default_primary_saint_id
             day.saints.sort(key=lambda item: (item.display_order, item.display_name))
             if "feasts" in override:
                 day.feasts = [_feast_from_dict(item) for item in override["feasts"]]
@@ -416,20 +466,36 @@ class CalendarProject:
                 day.notes = [str(item) for item in override["notes"]]
             if "service_rank" in override:
                 day.service_rank = _rank_from_dict(override["service_rank"])
+            day.is_edited = effective_day_state(day) != default_states[key]
         if update_source:
             self.source_snapshot = [day_to_dict(day) for day in current_days or base]
         return base
 
     def update_day(self, day: CalendarDay, primary_saint_id: str | None = None) -> None:
+        source = self.source_day(day.civil_date)
+        day.default_primary_saint_id = source.default_primary_saint_id if source else (day.default_primary_saint_id or default_primary_saint_id(day))
+        selected_saints = sorted((item for item in day.saints if item.selected), key=lambda item: (item.display_order, saint_key(item)))
+        selected_ids = {saint_key(item) for item in selected_saints}
+        requested_primary = primary_saint_id or day.primary_saint_id or day.default_primary_saint_id
+        day.primary_saint_id = requested_primary if requested_primary in selected_ids else (saint_key(selected_saints[0]) if selected_saints else "")
+        key = day.civil_date.isoformat()
+        if source and effective_day_state(day) == effective_day_state(source):
+            if self.overrides.pop(key, None) is not None:
+                self.mark_modified()
+            day.is_edited = False
+            return
         states = [_saint_to_dict(item) for item in day.saints]
-        self.overrides[day.civil_date.isoformat()] = {
+        override = {
             "saints": states,
-            "primary_saint_id": primary_saint_id or next((saint_key(item) for item in sorted(day.saints, key=lambda item: item.display_order) if item.selected), None),
+            "primary_saint_id": day.primary_saint_id or None,
             "feasts": [_feast_to_dict(item, day.civil_date) for item in day.feasts],
             "fasting": _fasting_to_dict(day.fasting), "notes": list(day.notes),
             "service_rank": _rank_to_dict(day.service_rank),
         }
-        self.mark_modified()
+        if self.overrides.get(key) != override:
+            self.overrides[key] = override
+            self.mark_modified()
+        day.is_edited = True
 
     def source_day(self, civil_date: date) -> CalendarDay | None:
         """Return this project's saved authoritative/default day, never live DB data."""
@@ -462,6 +528,15 @@ class CalendarProject:
 
     def override_dates(self, year: int | None = None, month: int | None = None) -> list[date]:
         result = [date.fromisoformat(key) for key in self.overrides]
+        if year is not None:
+            result = [value for value in result if value.year == year]
+        if month is not None:
+            result = [value for value in result if value.month == month]
+        return sorted(result)
+
+    def edited_dates(self, year: int | None = None, month: int | None = None) -> list[date]:
+        """Return only dates whose effective state differs from the saved source snapshot."""
+        result = [day.civil_date for day in self.resolve_days() if day.is_edited]
         if year is not None:
             result = [value for value in result if value.year == year]
         if month is not None:
@@ -511,4 +586,19 @@ def migrate_project_dict(data: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
-PROJECT_MIGRATIONS: dict[int, Any] = {}
+def _migrate_v1_to_v2(data: dict[str, Any]) -> dict[str, Any]:
+    for day in data.get("source_snapshot", []):
+        saints = day.get("saints", [])
+        for index, saint in enumerate(saints):
+            saint.setdefault("source_order", saint.get("display_order", index))
+            saint.setdefault("source_primary", False)
+        selected = [item for item in saints if item.get("selected", True)]
+        selected.sort(key=lambda item: (int(item.get("source_order", item.get("display_order", 0))), str(item.get("stable_id", ""))))
+        default_primary = str(selected[0].get("stable_id", "")) if selected else ""
+        day.setdefault("default_primary_saint_id", default_primary)
+        day.setdefault("primary_saint_id", default_primary)
+    data["project_schema_version"] = 2
+    return data
+
+
+PROJECT_MIGRATIONS: dict[int, Any] = {1: _migrate_v1_to_v2}

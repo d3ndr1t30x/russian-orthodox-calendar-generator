@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS saints (
     rank TEXT NOT NULL DEFAULT '',
     service_rank TEXT NOT NULL DEFAULT 'NONE',
     source_rank_text TEXT NOT NULL DEFAULT '',
+    source_order INTEGER NOT NULL DEFAULT 0,
+    source_primary INTEGER NOT NULL DEFAULT 0,
     description TEXT NOT NULL DEFAULT '',
     language TEXT NOT NULL DEFAULT 'en',
     source_id INTEGER REFERENCES sources(id)

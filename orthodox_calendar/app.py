@@ -13,6 +13,7 @@ from orthodox_calendar.database.database import Database
 from orthodox_calendar.paths import ensure_user_dirs
 from orthodox_calendar.projects import ProjectStore
 from orthodox_calendar.rendering.pdf_renderer import PdfOptions, PdfRenderer
+from orthodox_calendar.rendering.docx_renderer import DocxRenderer
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -22,6 +23,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--year", type=int)
     parser.add_argument("--state", choices=[code for code in JURISDICTIONS.values() if code] + list(JURISDICTIONS.keys()))
     parser.add_argument("--generate-pdf", action="store_true")
+    parser.add_argument("--generate-docx", action="store_true")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--months", help="Comma-separated month numbers (default: all)")
     parser.add_argument("--orientation", choices=["Portrait", "Landscape"])
@@ -64,7 +66,7 @@ def main(argv: list[str] | None = None) -> int:
         result, counts = SynchronizationService(database).sync_holy_trinity(year, cache_only=args.cache_only)
         print(f"Holy Trinity {year}: {counts}; downloaded={result.downloaded}; cache={result.cache_hits}; legacy-cache={result.legacy_cache_hits}; failures={len(result.failures)}")
         return 0 if not result.failures else 2
-    if args.generate_pdf or args.smoke_test:
+    if args.generate_pdf or args.generate_docx or args.smoke_test:
         project_path = args.project or args.project_file
         project = ProjectStore(paths["cache"] / "recovery").load(project_path) if project_path else None
         if project:
@@ -77,7 +79,8 @@ def main(argv: list[str] | None = None) -> int:
         months = [int(item) for item in args.months.split(",")] if args.months else list(range(1, 13))
         if any(not 1 <= month <= 12 for month in months): raise ValueError("Months must be from 1 to 12")
         safe_state = jurisdiction.replace(" ", "_").replace("/", "_")
-        output = args.output or paths["output"] / f"Russian_Orthodox_Calendar_{year}_{safe_state}_{language}.pdf"
+        suffix = ".docx" if args.generate_docx else ".pdf"
+        output = args.output or paths["output"] / f"Russian_Orthodox_Calendar_{year}_{safe_state}_{language}{suffix}"
         options = PdfOptions(
             year=year, jurisdiction=jurisdiction, template=template, orientation=orientation,
             language=language, include_julian=project.settings.include_julian if project else settings.include_julian,
@@ -93,7 +96,7 @@ def main(argv: list[str] | None = None) -> int:
             custom_header=project.settings.custom_header if project else settings.custom_header,
             custom_footer=project.settings.custom_footer if project else settings.custom_footer,
         )
-        PdfRenderer().render(output, days, options)
+        (DocxRenderer() if args.generate_docx else PdfRenderer()).render(output, days, options)
         print(output)
         return 0
     from PySide6.QtCore import QTimer

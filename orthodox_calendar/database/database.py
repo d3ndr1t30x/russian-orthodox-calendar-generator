@@ -35,7 +35,10 @@ class Database:
             if "language" not in columns:
                 db.execute("ALTER TABLE fasting_records ADD COLUMN language TEXT NOT NULL DEFAULT 'en'")
             migrations = {
-                "saints": {"service_rank": "TEXT NOT NULL DEFAULT 'NONE'", "source_rank_text": "TEXT NOT NULL DEFAULT ''"},
+                "saints": {
+                    "service_rank": "TEXT NOT NULL DEFAULT 'NONE'", "source_rank_text": "TEXT NOT NULL DEFAULT ''",
+                    "source_order": "INTEGER NOT NULL DEFAULT 0", "source_primary": "INTEGER NOT NULL DEFAULT 0",
+                },
                 "feasts": {"service_rank": "TEXT NOT NULL DEFAULT 'NONE'", "source_rank_text": "TEXT NOT NULL DEFAULT ''"},
                 "source_day_metadata": {
                     "service_rank": "TEXT NOT NULL DEFAULT 'NO_DATA'", "rank_name_en": "TEXT NOT NULL DEFAULT ''",
@@ -67,13 +70,14 @@ class Database:
         with self.connect() as db:
             source_id = self._source_id(db, source)
             count = 0
-            for record in saints:
+            for source_order, record in enumerate(saints):
                 civil = date.fromisoformat(record["civil_date"])
                 if civil.year != year:
                     raise ValueError(f"Date {civil} is outside import year {year}")
                 cur = db.execute(
-                    "INSERT INTO saints(canonical_name,display_name,alternate_names,category,rank,description,language,source_id) VALUES(?,?,?,?,?,?,?,?)",
-                    (record["canonical_name"], record.get("display_name", record["canonical_name"]), json.dumps(record.get("alternate_names", [])), record.get("category", "Saint"), record.get("rank", ""), record.get("description", ""), record.get("language", "en"), source_id),
+                    """INSERT INTO saints(canonical_name,display_name,alternate_names,category,rank,description,
+                       language,source_id,source_order,source_primary) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                    (record["canonical_name"], record.get("display_name", record["canonical_name"]), json.dumps(record.get("alternate_names", [])), record.get("category", "Saint"), record.get("rank", ""), record.get("description", ""), record.get("language", "en"), source_id, int(record.get("source_order", source_order)), int(bool(record.get("source_primary", record.get("primary", False))))),
                 )
                 db.execute("INSERT INTO saint_commemorations(saint_id,civil_date) VALUES(?,?)", (cur.lastrowid, civil.isoformat()))
                 count += 1
@@ -134,7 +138,7 @@ class Database:
                         (civil, self._fast_level(day.fasting_text).value, day.fasting_text, "Source-supplied daily fasting rule", day.language, source_id),
                     )
                     counts["fasting"] += 1
-                for entry in day.entries:
+                for source_order, entry in enumerate(day.entries):
                     if entry.is_feast:
                         rank = FeastRank.GREAT.value if entry.service_rank == ServiceRank.GREAT_FEAST else FeastRank.MAJOR.value if entry.service_rank in {ServiceRank.VIGIL, ServiceRank.POLYELEOS} else FeastRank.COMMEMORATION.value
                         db.execute(
@@ -147,9 +151,9 @@ class Database:
                     else:
                         cur = db.execute(
                             """INSERT INTO saints(canonical_name,display_name,category,rank,service_rank,
-                               source_rank_text,language,source_id) VALUES(?,?,?,?,?,?,?,?)""",
+                               source_rank_text,language,source_id,source_order,source_primary) VALUES(?,?,?,?,?,?,?,?,?,?)""",
                             (entry.name, entry.name, "Commemoration", str(entry.rank), entry.service_rank.value,
-                             entry.source_rank_text, entry.language, source_id),
+                             entry.source_rank_text, entry.language, source_id, source_order, 0),
                         )
                         db.execute("INSERT INTO saint_commemorations(saint_id,civil_date) VALUES(?,?)", (cur.lastrowid, civil))
                         counts["saints"] += 1
@@ -172,7 +176,7 @@ class Database:
             if language:
                 query += " AND s.language=?"
                 params.append(language)
-            query += " ORDER BY sc.civil_date,s.display_name"
+            query += " ORDER BY sc.civil_date,s.source_primary DESC,s.source_order,s.id"
             rows = db.execute(query, params).fetchall()
         for row in rows:
             override = json.loads(row["override_value"])
@@ -180,7 +184,8 @@ class Database:
                 row["id"], row["canonical_name"], override.get("display_name", row["display_name"]),
                 date.fromisoformat(row["civil_date"]), row["category"], row["rank"], row["description"], row["language"],
                 Source(row["source_name"] or "Unknown", row["source_url"] or ""), row["override_action"] != "hide",
-                int(override.get("display_order", 0)), ServiceRank(row["service_rank"]), row["source_rank_text"],
+                int(override.get("display_order", row["source_order"])), ServiceRank(row["service_rank"]), row["source_rank_text"],
+                int(row["source_order"]), bool(row["source_primary"]),
             )
             result.setdefault(saint.commemoration_date, []).append(saint)
         for entries in result.values():
