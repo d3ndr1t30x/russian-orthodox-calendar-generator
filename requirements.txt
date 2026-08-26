@@ -1,0 +1,9 @@
+PySide6>=6.8,<7
+reportlab>=4.2,<5
+Pillow>=11,<12
+requests>=2.32,<3
+beautifulsoup4>=4.12,<5
+lxml>=5,<7
+holidays>=0.60,<1
+pypdf>=5,<7
+
