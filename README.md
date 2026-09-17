@@ -1,9 +1,8 @@
 # Russian Orthodox Calendar Generator
 
-Version 1.9.0 reproduces the supplied calendar references' measured monthly
-layout in both PDF and editable Word output. Rank symbols sit inline with
-commemorations, fasting symbols remain at the top right, legends occupy unused
-calendar cells, saints begin hidden, and Liturgical Week / Tone is optional.
+Version 1.10.0 adds high-contrast editor checkboxes, matching visible checkbox
+lists for primary and additional saints, and a wide highlighted full-text item
+editor. PDF and editable Word rendering remain unchanged from version 1.9.0.
 
 The measured design specification is in [`design/`](design). Generate a stress
 month and optional reference comparison with:
@@ -26,7 +25,7 @@ A Windows desktop application for producing print-ready Russian Orthodox calenda
 - Great Feast/Vigil pink washes, strict-fast grey washes and restrained print-friendly styling.
 - Saints hidden by default, with selection, search and reordering before publication.
 - Optional Liturgical Week / Tone line above the saints list.
-- Deterministic source-derived default primary saints, explicit primary selection and project-only added saints.
+- Deterministic source-derived default primary saints, visible checkbox-list primary/additional selection and project-only added saints.
 - Australian state and territory public holidays using `python-holidays`.
 - SQLite provenance, bilingual source records, cache-first synchronization and user overrides.
 - Standalone Windows distribution: end users do not need Python or the legacy .NET application.
@@ -40,7 +39,7 @@ A Windows desktop application for producing print-ready Russian Orthodox calenda
 ## Install the Windows release
 
 1. Open the repository's **Releases** page.
-2. Download `RussianOrthodoxCalendar-1.9.0-windows-x64.zip`.
+2. Download `RussianOrthodoxCalendar-1.10.0-windows-x64.zip`.
 3. Extract the complete archive.
 4. Run `RussianOrthodoxCalendar.exe`.
 
