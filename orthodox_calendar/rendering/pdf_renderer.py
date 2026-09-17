@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import calendar
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -13,9 +14,11 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen.canvas import Canvas
 
 from orthodox_calendar import __version__
-from orthodox_calendar.models import CalendarDay, FastLevel, ServiceRank, ServiceRankInfo
+from orthodox_calendar.models import CalendarDay, FastLevel, ServiceRank
 from orthodox_calendar.paths import asset_path
-from orthodox_calendar.service_ranks import icon_name_for, localized_rank_name
+from orthodox_calendar.service_ranks import (
+    icon_name_for, legend_label_for, rank_text_is_red, symbol_colour_for, symbol_for,
+)
 from .layout import REFERENCE_LAYOUT, ReferenceLayout
 from .publication import is_primary_saint, ordered_selected_saints
 
@@ -39,6 +42,7 @@ class PdfOptions:
     include_fasting_legend: bool = True
     include_service_rank_icons: bool = True
     include_service_rank_legend: bool = True
+    include_liturgical_week_tone: bool = True
     rank_labels_en: dict[str, str] = field(default_factory=dict)
     rank_labels_ru: dict[str, str] = field(default_factory=dict)
     months: list[int] = field(default_factory=lambda: list(range(1, 13)))
@@ -131,6 +135,15 @@ class IconRenderer:
             if name in source:
                 c.drawImage(source[name], x + index * size * 1.08, y, size, size, mask="auto", preserveAspectRatio=True)
 
+    @staticmethod
+    def fasting_symbol_names(day_or_fasting) -> list[str]:
+        names = IconRenderer.permissions(day_or_fasting)
+        if "fish" in names:
+            return ["fish"]
+        if "oil" in names or "wine" in names:
+            return ["oil"]
+        return []
+
 
 class HeaderRenderer:
     def __init__(self, layout: ReferenceLayout, fonts: dict[str, str], palette: PublicationPalette):
@@ -189,34 +202,52 @@ class DayCellRenderer:
             c.setFont(self.fonts["serif"], 9)
             c.drawString(x + pad + civil_w + .5 * mm, date_y + .4 * mm, str(day.julian_date.day))
 
-        right = x + w - pad
-        rank = self.icons.rank_name(day)
-        if options.include_service_rank_icons and rank in self.icons.rank:
-            right -= self.layout.rank_icon_size
-            IconRenderer.draw(c, self.icons.rank, [rank], right, y + h - 6.9 * mm, self.layout.rank_icon_size)
-            right -= .7 * mm
-        fasting_icons = self.icons.permissions(day) if options.include_fasting_icons else []
-        fasting_icons = [name for name in fasting_icons if name != "strict_fast"]
-        if fasting_icons:
-            icons_width = len(fasting_icons) * self.layout.fasting_icon_size * 1.08
-            right -= icons_width
-            IconRenderer.draw(c, self.icons.fasting, fasting_icons, right, y + h - 6.5 * mm, self.layout.fasting_icon_size)
+        fasting_symbols = self.icons.fasting_symbol_names(day) if options.include_fasting_icons else []
+        if fasting_symbols:
+            glyph = "🐟" if fasting_symbols[0] == "fish" else "🌢"
+            colour = "#00AEEF" if fasting_symbols[0] == "fish" else "#FFC000"
+            c.setFont(self.fonts["symbols"], 12.5)
+            c.setFillColor(HexColor(colour))
+            c.drawRightString(x + w - pad, y + h - 6.5 * mm, glyph)
 
         cursor = y + h - 10.1 * mm
         holiday_space = 6.0 * mm if options.include_holidays and day.public_holidays else 1.8 * mm
         bottom = y + holiday_space
         line_gap = 2.55 * mm
         text_width = w - 2 * pad
-        entries: list[tuple[str, str, bool]] = []
+        if options.include_liturgical_week_tone and (day.liturgical_week or day.tone):
+            tone = ("Глас " if options.language == "Russian" else "Tone ") + str(day.tone) if day.tone else ""
+            week_tone = " · ".join(part for part in (day.liturgical_week, tone) if part)
+            c.setFont(self.fonts["sans_bold"], 5.4)
+            c.setFillColor(self.palette.ink)
+            for line in TextFitter.lines(week_tone, self.fonts["sans_bold"], 5.4, text_width, 2):
+                if cursor < bottom:
+                    break
+                c.drawString(x + pad, cursor, line)
+                cursor -= line_gap
+
+        entries: list[tuple[str, str, bool, ServiceRank]] = []
+        day_rank = day.service_rank.normalized_rank
+        day_rank_used = False
         for feast in day.feasts:
-            entries.append((feast.name, "feast", feast.rank.value == "Great Feast"))
+            rank = feast.service_rank
+            if not symbol_for(rank) and not day_rank_used and symbol_for(day_rank):
+                rank = day_rank; day_rank_used = True
+            elif symbol_for(rank):
+                day_rank_used = True
+            entries.append((feast.name, "feast", feast.rank.value == "Great Feast", rank))
         for saint in ordered_selected_saints(day):
-            entries.append((saint.display_name, "saint", is_primary_saint(day, saint) or saint.service_rank in {ServiceRank.VIGIL, ServiceRank.POLYELEOS}))
+            rank = saint.service_rank
+            if not symbol_for(rank) and not day_rank_used and is_primary_saint(day, saint) and symbol_for(day_rank):
+                rank = day_rank; day_rank_used = True
+            elif symbol_for(rank):
+                day_rank_used = True
+            entries.append((saint.display_name, "saint", is_primary_saint(day, saint) or rank in {ServiceRank.VIGIL, ServiceRank.POLYELEOS}, rank))
         for note in day.notes:
-            entries.append((note, "note", False))
+            entries.append((note, "note", False, ServiceRank.NONE))
 
         omitted = 0
-        for text, kind, prominent in entries:
+        for text, kind, prominent, rank in entries:
             available = int((cursor - bottom) // line_gap)
             if available <= 0:
                 omitted += 1
@@ -224,14 +255,31 @@ class DayCellRenderer:
             major = kind == "feast" and (state in {"great_feast", "vigil"} or prominent)
             font = self.fonts["sans_bold"] if major or prominent or kind == "note" else self.fonts["sans"]
             size = 6.4 if major else (5.5 if kind == "note" else 5.75)
-            lines = TextFitter.lines(text, font, size, text_width, min(3 if major else 2, available))
-            c.setFillColor(self.palette.note if kind == "note" else (self.palette.feast if major or prominent else self.palette.ink))
-            c.setFont(font, size)
-            for line in lines:
+            glyph = symbol_for(rank) if options.include_service_rank_icons else ""
+            symbol_size = 7.5
+            symbol_advance = (pdfmetrics.stringWidth(glyph, self.fonts["symbols"], symbol_size) + .8 * mm) if glyph else 0
+            lines = TextFitter.lines(text, font, size, text_width - symbol_advance, min(3 if major else 2, available))
+            text_colour = self.palette.note if kind == "note" else (self.palette.feast if major or rank_text_is_red(rank) else self.palette.ink)
+            for index, line in enumerate(lines):
                 if cursor < bottom:
                     omitted += 1
                     break
-                (c.drawCentredString(x + w / 2, cursor, line) if major else c.drawString(x + pad, cursor, line))
+                line_symbol = glyph if index == 0 else ""
+                advance = symbol_advance if line_symbol else (symbol_advance if glyph and not major else 0)
+                if major:
+                    composite_width = pdfmetrics.stringWidth(line, font, size) + (symbol_advance if line_symbol else 0)
+                    text_x = x + (w - composite_width) / 2 + (symbol_advance if line_symbol else 0)
+                    symbol_x = x + (w - composite_width) / 2
+                else:
+                    symbol_x = x + pad
+                    text_x = x + pad + advance
+                if line_symbol:
+                    c.setFont(self.fonts["symbols"], symbol_size)
+                    c.setFillColor(HexColor("#" + symbol_colour_for(rank)))
+                    c.drawString(symbol_x, cursor - .25, line_symbol)
+                c.setFont(font, size)
+                c.setFillColor(text_colour)
+                c.drawString(text_x, cursor, line)
                 cursor -= line_gap
         if omitted and cursor >= bottom:
             c.setFont(self.fonts["sans"], 5.2)
@@ -261,20 +309,25 @@ class LegendRenderer:
             c.setFillColor(self.palette.ink)
             c.drawString(cursor + 3.2 * mm, y + 1.2 * mm, "Строгий пост" if options.language == "Russian" else "Strict fast")
             cursor += 24 * mm
-            names = [name for name in ("fish", "wine", "oil") if name in self.icons.fasting]
-            IconRenderer.draw(c, self.icons.fasting, names, cursor, y + .3 * mm, 3 * mm)
-            cursor += len(names) * 3.3 * mm
+            c.setFont(self.fonts["symbols"], 7.5)
+            c.setFillColor(HexColor("#00AEEF")); c.drawString(cursor, y + 1.0 * mm, "🐟")
+            c.setFillColor(HexColor("#FFC000")); c.drawString(cursor + 4 * mm, y + 1.0 * mm, "🌢")
+            cursor += 8 * mm
+            c.setFillColor(self.palette.ink); c.setFont(self.fonts["sans"], 4.7)
             c.drawString(cursor, y + 1.2 * mm, "разрешается" if options.language == "Russian" else "permitted")
             cursor += 19 * mm
         if options.include_service_rank_legend:
             for rank, name in ((ServiceRank.GREAT_FEAST, "great_feast"), (ServiceRank.VIGIL, "vigil"), (ServiceRank.POLYELEOS, "polyeleos"), (ServiceRank.DOXOLOGY, "doxology"), (ServiceRank.SIX_STICHERA, "six_stichera"), (ServiceRank.NO_SIGN, "no_sign")):
                 if cursor > x + width - 28 * mm:
                     break
-                IconRenderer.draw(c, self.icons.rank, [name], cursor, y + .3 * mm, 3 * mm)
-                label = localized_rank_name(ServiceRankInfo(normalized_rank=rank), options.language, options.rank_labels_en, options.rank_labels_ru)
+                glyph = symbol_for(rank)
+                if glyph:
+                    c.setFont(self.fonts["symbols"], 7.0); c.setFillColor(HexColor("#" + symbol_colour_for(rank)))
+                    c.drawString(cursor, y + 1.0 * mm, glyph)
+                label = legend_label_for(rank, options.language, options.rank_labels_en, options.rank_labels_ru)
                 c.setFillColor(self.palette.ink)
                 c.setFont(self.fonts["sans"], 4.35)
-                c.drawString(cursor + 3.5 * mm, y + 1.2 * mm, label)
+                c.drawString(cursor + (3.5 * mm if glyph else 0), y + 1.2 * mm, label)
                 cursor += max(20 * mm, pdfmetrics.stringWidth(label, self.fonts["sans"], 4.35) + 5 * mm)
 
     def draw_integrated(self, c: Canvas, x: float, y: float, width: float, height: float, options: PdfOptions, kind: str) -> None:
@@ -292,17 +345,22 @@ class LegendRenderer:
                 if name == "strict_fast":
                     c.setFillColor(self.palette.strict); c.rect(left, cursor_y - .8 * mm, 3 * mm, 3 * mm, fill=1, stroke=1)
                 else:
-                    IconRenderer.draw(c, self.icons.fasting, [name], left, cursor_y - 1.2 * mm, 3.4 * mm)
-                c.setFillColor(self.palette.ink); c.drawString(left + 5 * mm, cursor_y, label)
+                    glyph = "🐟" if name == "fish" else "🌢"
+                    c.setFont(self.fonts["symbols"], 8.0); c.setFillColor(HexColor("#00AEEF" if name == "fish" else "#FFC000"))
+                    c.drawString(left, cursor_y - .3 * mm, glyph)
+                c.setFillColor(self.palette.ink); c.setFont(self.fonts["sans"], 6.0); c.drawString(left + 5 * mm, cursor_y, label)
                 cursor_y -= 5 * mm
             return
         entries = ((ServiceRank.GREAT_FEAST, "great_feast"), (ServiceRank.VIGIL, "vigil"), (ServiceRank.POLYELEOS, "polyeleos"), (ServiceRank.DOXOLOGY, "doxology"), (ServiceRank.SIX_STICHERA, "six_stichera"), (ServiceRank.NO_SIGN, "no_sign"))
         for rank, name in entries:
             if cursor_y < y + 2 * mm:
                 break
-            IconRenderer.draw(c, self.icons.rank, [name], left, cursor_y - 1.2 * mm, 3.4 * mm)
-            label = localized_rank_name(ServiceRankInfo(normalized_rank=rank), options.language, options.rank_labels_en, options.rank_labels_ru)
-            c.setFillColor(self.palette.ink); c.drawString(left + 5 * mm, cursor_y, label)
+            glyph = symbol_for(rank)
+            if glyph:
+                c.setFont(self.fonts["symbols"], 8.0); c.setFillColor(HexColor("#" + symbol_colour_for(rank)))
+                c.drawString(left, cursor_y - .3 * mm, glyph)
+            label = legend_label_for(rank, options.language, options.rank_labels_en, options.rank_labels_ru)
+            c.setFillColor(self.palette.ink); c.setFont(self.fonts["sans"], 6.0); c.drawString(left + (5 * mm if glyph else 0), cursor_y, label)
             cursor_y -= 4.2 * mm
 
 
@@ -357,7 +415,8 @@ class PdfRenderer:
 
     @staticmethod
     def _register_fonts() -> dict[str, str]:
-        definitions = {"sans": ("NotoSans", asset_path("fonts", "NotoSans-Regular.ttf")), "sans_bold": ("NotoSans-Bold", asset_path("fonts", "NotoSans-Bold.ttf")), "serif": ("NotoSerif", asset_path("fonts", "NotoSerif-Regular.ttf")), "serif_bold": ("NotoSerif-Bold", asset_path("fonts", "NotoSerif-Bold.ttf"))}
+        symbol_path = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts" / "seguisym.ttf"
+        definitions = {"sans": ("NotoSans", asset_path("fonts", "NotoSans-Regular.ttf")), "sans_bold": ("NotoSans-Bold", asset_path("fonts", "NotoSans-Bold.ttf")), "serif": ("NotoSerif", asset_path("fonts", "NotoSerif-Regular.ttf")), "serif_bold": ("NotoSerif-Bold", asset_path("fonts", "NotoSerif-Bold.ttf")), "symbols": ("SegoeUISymbol", symbol_path)}
         for name, path in definitions.values():
             if path.exists() and name not in pdfmetrics.getRegisteredFontNames():
                 pdfmetrics.registerFont(TTFont(name, str(path)))

@@ -167,7 +167,7 @@ class Database:
         result: dict[date, list[Saint]] = {}
         with self.connect() as db:
             query = """SELECT s.*, sc.civil_date, src.name source_name, src.url source_url,
-                          COALESCE(o.action,'show') override_action, COALESCE(o.value_json,'{}') override_value
+                          COALESCE(o.action,'hide') override_action, COALESCE(o.value_json,'{}') override_value
                    FROM saints s JOIN saint_commemorations sc ON sc.saint_id=s.id
                    LEFT JOIN sources src ON src.id=s.source_id
                    LEFT JOIN user_overrides o ON o.entity_type='saint' AND o.entity_id=s.id AND o.civil_date=sc.civil_date
@@ -183,7 +183,7 @@ class Database:
             saint = Saint(
                 row["id"], row["canonical_name"], override.get("display_name", row["display_name"]),
                 date.fromisoformat(row["civil_date"]), row["category"], row["rank"], row["description"], row["language"],
-                Source(row["source_name"] or "Unknown", row["source_url"] or ""), row["override_action"] != "hide",
+                Source(row["source_name"] or "Unknown", row["source_url"] or ""), row["override_action"] == "show",
                 int(override.get("display_order", row["source_order"])), ServiceRank(row["service_rank"]), row["source_rank_text"],
                 int(row["source_order"]), bool(row["source_primary"]),
             )

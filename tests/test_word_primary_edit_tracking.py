@@ -21,9 +21,9 @@ def project_with_saints() -> CalendarProject:
     days = OrthodoxCalendarEngine().generate_year(2027, "Queensland")
     target = days[6]
     target.saints = [
-        Saint(1, "First", "First source saint", target.civil_date, source=Source("Authority"), display_order=0, source_order=0),
-        Saint(2, "Featured", "Source featured saint", target.civil_date, source=Source("Authority"), display_order=1, source_order=1, source_primary=True),
-        Saint(3, "Third", "Third source saint", target.civil_date, source=Source("Authority"), display_order=2, source_order=2),
+        Saint(1, "First", "First source saint", target.civil_date, source=Source("Authority"), selected=True, display_order=0, source_order=0),
+        Saint(2, "Featured", "Source featured saint", target.civil_date, source=Source("Authority"), selected=True, display_order=1, source_order=1, source_primary=True),
+        Saint(3, "Third", "Third source saint", target.civil_date, source=Source("Authority"), selected=True, display_order=2, source_order=2),
     ]
     return CalendarProject.create("Primary Test", ProjectSettings(2027, "Queensland"), days, "2027.test")
 
@@ -71,7 +71,7 @@ def test_month_and_year_reset_recalculate_derived_edited_dates():
 def test_v1_project_fixture_migrates_primary_saint_without_becoming_unreadable():
     project = ProjectStore().load(__import__("pathlib").Path(__file__).parent / "fixtures" / "sample_calendar.rocproject")
     day = project.resolve_days()[6]
-    assert project.project_schema_version == PROJECT_SCHEMA_VERSION == 2
+    assert project.project_schema_version == PROJECT_SCHEMA_VERSION == 3
     assert day.default_primary_saint_id and day.primary_saint_id
 
 
@@ -142,7 +142,7 @@ def test_russian_docx_uses_source_cyrillic_without_translation(tmp_path):
 def test_dense_docx_keeps_compact_grid_and_full_editable_details(tmp_path):
     project = project_with_saints(); day = project.resolve_days()[6]
     for index in range(4, 12):
-        day.saints.append(Saint(index, f"Long {index}", f"Long additional commemoration number {index} with complete source wording", day.civil_date, display_order=index))
+        day.saints.append(Saint(index, f"Long {index}", f"Long additional commemoration number {index} with complete source wording", day.civil_date, selected=True, display_order=index))
     project.update_day(day); output = tmp_path / "dense.docx"
     DocxRenderer().render(output, project.resolve_days(), PdfOptions(2027, "Queensland", months=[1]))
     document = Document(output); grid_text = "\n".join(cell.text for row in document.tables[0].rows for cell in row.cells)

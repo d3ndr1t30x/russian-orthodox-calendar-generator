@@ -6,15 +6,16 @@ from pathlib import Path
 from docx import Document
 from docx.enum.section import WD_ORIENT, WD_SECTION
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_ROW_HEIGHT_RULE
-from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_TAB_ALIGNMENT
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Mm, Pt, RGBColor
 
 from orthodox_calendar import __version__
 from orthodox_calendar.models import CalendarDay, FastLevel, ServiceRank
-from orthodox_calendar.paths import asset_path
-from orthodox_calendar.service_ranks import icon_path_for, localized_rank_name
+from orthodox_calendar.service_ranks import (
+    legend_label_for, localized_rank_name, rank_text_is_red, symbol_colour_for, symbol_for,
+)
 from .pdf_renderer import IconRenderer, PdfOptions, PdfRenderer
 from .publication import is_primary_saint, ordered_selected_saints
 
@@ -76,6 +77,29 @@ def _format_run(run, size: float, bold: bool = False, colour: str = "111111", fo
     r_fonts.set(qn("w:ascii"), font); r_fonts.set(qn("w:hAnsi"), font); r_fonts.set(qn("w:eastAsia"), font)
 
 
+def _format_symbol_run(run, size: float, colour: str, emoji: bool = False) -> None:
+    font = "Segoe UI Emoji" if emoji else "Arial Narrow"
+    run.font.name = font; run.font.size = Pt(size); run.font.color.rgb = RGBColor.from_string(colour)
+    r_fonts = run._element.get_or_add_rPr().get_or_add_rFonts()
+    r_fonts.set(qn("w:ascii"), font); r_fonts.set(qn("w:hAnsi"), font)
+    r_fonts.set(qn("w:cs"), "Segoe UI Symbol")
+
+
+def _add_ranked_text(paragraph, text: str, rank: ServiceRank, size: float = 8, bold: bool = False, colour: str = "111111") -> None:
+    glyph = symbol_for(rank)
+    if glyph:
+        _format_symbol_run(paragraph.add_run(glyph), size, symbol_colour_for(rank))
+        _format_run(paragraph.add_run(" "), size, colour=colour)
+    text_colour = "C00000" if rank_text_is_red(rank) else colour
+    _format_run(paragraph.add_run(text), size, bold, text_colour)
+
+
+def _add_shaded_swatch(paragraph, colour: str = "C7C7C7") -> None:
+    run = paragraph.add_run("   ")
+    shading = OxmlElement("w:shd"); shading.set(qn("w:fill"), colour)
+    run._element.get_or_add_rPr().append(shading)
+
+
 def _paragraph(cell, before: float = 0, after: float = 0):
     paragraph = cell.add_paragraph() if cell.paragraphs[0].text else cell.paragraphs[0]
     paragraph.paragraph_format.space_before = Pt(before); paragraph.paragraph_format.space_after = Pt(after)
@@ -102,7 +126,7 @@ class DocxRenderer:
         section.top_margin = section.bottom_margin = Mm(6)
         section.header_distance = section.footer_distance = Mm(3)
         normal = document.styles["Normal"]
-        normal.font.name = "Arial Narrow"; normal.font.size = Pt(5.2)
+        normal.font.name = "Arial Narrow"; normal.font.size = Pt(8)
         normal.paragraph_format.space_before = normal.paragraph_format.space_after = Pt(0)
         document.core_properties.title = f"Russian Orthodox Calendar {options.year} - {options.jurisdiction}"
         document.core_properties.author = "Russian Orthodox Calendar Generator"
@@ -129,8 +153,8 @@ class DocxRenderer:
         title = document.add_paragraph(); title.alignment = WD_ALIGN_PARAGRAPH.CENTER
         title.paragraph_format.space_after = Pt(2); title.paragraph_format.keep_with_next = True
         month_name = MONTHS_RU[month] if options.language == "Russian" else calendar.month_name[month]
-        _format_run(title.add_run(month_name.upper()), 16, True, "8B1E2D", "Arial")
-        _format_run(title.add_run(f"    {options.year}  |  {options.jurisdiction}"), 7.5, False, "333333", "Arial")
+        _format_run(title.add_run(month_name), 28, False, "111111", "Times New Roman")
+        _format_run(title.add_run(f"    {options.year}  |  {options.jurisdiction}"), 8, False, "333333", "Arial Narrow")
 
         weeks = calendar.Calendar(firstweekday=6).monthdayscalendar(options.year, month)
         table = document.add_table(rows=1, cols=7); table.style = "Table Grid"
@@ -139,47 +163,61 @@ class DocxRenderer:
             _set_cell_shading(cell, "A61E2D" if index == 0 else "28618B"); _set_cell_margins(cell, 35)
             cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
             paragraph = cell.paragraphs[0]; paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            _format_run(paragraph.add_run(label), 6.5, True, "FFFFFF", "Arial")
+            _format_run(paragraph.add_run(label), 7.5, True, "FFFFFF", "Arial")
         table.rows[0].height = Mm(6); table.rows[0].height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST; _prevent_split(table.rows[0])
 
         by_number = {day.civil_date.day: day for day in days}
-        row_height = max(25, int(165 / len(weeks)))
+        # Leave room for Word's mandatory paragraph after the final table so
+        # a one-month export does not acquire a blank trailing page.
+        row_height = max(24, int(159 / len(weeks)))
+        week_rows = []
         for week in weeks:
             row = table.add_row(); row.height = Mm(row_height); row.height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST; _prevent_split(row)
+            week_rows.append(row)
+        _set_table_geometry(table, total_width_dxa)
+        column_width_mm = total_width_dxa / 1440 * 25.4 / 7
+        for week, row in zip(weeks, week_rows):
             for number, cell in zip(week, row.cells):
                 _set_cell_margins(cell); cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.TOP
-                if number and number in by_number: self._fill_day(cell, by_number[number], options)
-        _set_table_geometry(table, total_width_dxa)
+                if number and number in by_number: self._fill_day(cell, by_number[number], options, column_width_mm)
+        self._add_grid_legends(table, weeks, options)
 
-        legend = document.add_paragraph(); legend.paragraph_format.space_before = Pt(1); legend.paragraph_format.keep_with_next = False
-        legend_text = "СТРОГИЙ ПОСТ | РЫБА / ВИНО / МАСЛО РАЗРЕШАЮТСЯ | ЛИТУРГИЧЕСКИЙ РАНГ" if options.language == "Russian" else "STRICT FAST | FISH / WINE / OIL PERMITTED | LITURGICAL SERVICE RANK"
-        _format_run(legend.add_run(legend_text), 4.5, False, "555555", "Arial")
-
-    def _fill_day(self, cell, day: CalendarDay, options: PdfOptions) -> None:
+    def _fill_day(self, cell, day: CalendarDay, options: PdfOptions, column_width_mm: float) -> None:
         state = PdfRenderer.visual_state(day)
         if state in {"great_feast", "vigil"}: _set_cell_shading(cell, "F8CACA")
         elif state == "strict_fast": _set_cell_shading(cell, "D3D3D3")
         date_line = cell.paragraphs[0]; date_line.paragraph_format.space_after = Pt(0)
+        date_line.paragraph_format.tab_stops.add_tab_stop(Mm(max(18, column_width_mm - 3)), WD_TAB_ALIGNMENT.RIGHT)
         date_colour = "B00000" if day.civil_date.weekday() == 6 or state in {"great_feast", "vigil"} else "111111"
-        _format_run(date_line.add_run(str(day.civil_date.day)), 10.5, True, date_colour, "Arial")
-        if options.include_julian: _format_run(date_line.add_run(f"   O.S. {day.julian_date.day}"), 4.6, False, "555555")
+        _format_run(date_line.add_run(str(day.civil_date.day)), 14, False, date_colour, "Times New Roman")
+        if options.include_julian: _format_run(date_line.add_run(str(day.julian_date.day)), 9, False, date_colour, "Times New Roman")
+        fasting_symbols = IconRenderer.fasting_symbol_names(day) if options.include_fasting_icons else []
+        if fasting_symbols:
+            _format_run(date_line.add_run("\t"), 8)
+            glyph = "🐟" if fasting_symbols[0] == "fish" else "🌢"
+            _format_symbol_run(date_line.add_run(glyph), 14, "00AEEF" if fasting_symbols[0] == "fish" else "FFC000", emoji=True)
 
-        rank = day.service_rank.normalized_rank
-        if rank not in {ServiceRank.NONE, ServiceRank.NO_DATA, ServiceRank.UNKNOWN}:
-            paragraph = _paragraph(cell); path = icon_path_for(day.service_rank)
-            if options.include_service_rank_icons and path and path.exists(): paragraph.add_run().add_picture(str(path), width=Mm(3.2))
-            label = _compact(localized_rank_name(day.service_rank, options.language, options.rank_labels_en, options.rank_labels_ru), 32)
-            _format_run(paragraph.add_run(" " + label), 4.7, True, "8B1E2D")
+        if options.include_liturgical_week_tone and (day.liturgical_week or day.tone):
+            tone = ("Глас " if options.language == "Russian" else "Tone ") + str(day.tone) if day.tone else ""
+            value = " · ".join(part for part in (day.liturgical_week, tone) if part)
+            _format_run(_paragraph(cell).add_run(value), 8, True, "111111")
 
         saints = ordered_selected_saints(day)
         shown_feasts = day.feasts[:1]
         shown_saints = saints[:2]
+        day_rank = day.service_rank.normalized_rank; day_rank_used = False
         for feast in shown_feasts:
             paragraph = _paragraph(cell); major = feast.rank.value == "Great Feast" or state in {"great_feast", "vigil"}
-            _format_run(paragraph.add_run(_compact(feast.name)), 5.0, major, "B00000" if major else "222222")
+            rank = feast.service_rank
+            if not symbol_for(rank) and not day_rank_used and symbol_for(day_rank): rank = day_rank; day_rank_used = True
+            elif symbol_for(rank): day_rank_used = True
+            _add_ranked_text(paragraph, _compact(feast.name), rank, 8, major, "B00000" if major else "222222")
         for saint in shown_saints:
             paragraph = _paragraph(cell)
-            _format_run(paragraph.add_run(_compact(saint.display_name)), 5.0 if is_primary_saint(day, saint) else 4.7, is_primary_saint(day, saint), "111111")
+            rank = saint.service_rank
+            if not symbol_for(rank) and not day_rank_used and is_primary_saint(day, saint) and symbol_for(day_rank): rank = day_rank; day_rank_used = True
+            elif symbol_for(rank): day_rank_used = True
+            _add_ranked_text(paragraph, _compact(saint.display_name), rank, 8, is_primary_saint(day, saint), "111111")
         omitted = len(day.feasts) - len(shown_feasts) + len(saints) - len(shown_saints)
         displayed_texts = [item.name for item in shown_feasts] + [item.display_name for item in shown_saints]
         needs_detail = bool(omitted or any(len(" ".join(value.split())) > 44 for value in displayed_texts)
@@ -188,20 +226,54 @@ class DocxRenderer:
         if needs_detail and all(item.civil_date != day.civil_date for item in self._detail_days): self._detail_days.append(day)
         if omitted:
             label = f"+{omitted} ещё - см. подробности" if options.language == "Russian" else f"+{omitted} more - see daily details"
-            _format_run(_paragraph(cell).add_run(label), 4.4, False, "555555")
-        if day.fasting and day.fasting.level != FastLevel.FREE:
-            paragraph = _paragraph(cell); icons = [name for name in IconRenderer.permissions(day) if name != "strict_fast"]
-            if options.include_fasting_icons:
-                for name in icons:
-                    path = asset_path("icons", f"{name}.png")
-                    if path.exists(): paragraph.add_run().add_picture(str(path), width=Mm(2.8))
-            fasting_text = _compact(day.fasting.period or day.fasting.detail or day.fasting.level.value)
-            _format_run(paragraph.add_run((" " if icons else "") + fasting_text), 4.6, True, "333333")
+            _format_run(_paragraph(cell).add_run(label), 7, False, "555555")
         if options.include_holidays:
             for holiday in day.public_holidays[:1]:
-                _format_run(_paragraph(cell).add_run(_compact(holiday.name)), 4.7, True, "243CFF")
+                _format_run(_paragraph(cell).add_run(_compact(holiday.name)), 8, True, "243CFF")
         for note in day.notes[:1]:
-            _format_run(_paragraph(cell).add_run(_compact(note)), 4.7, True, "008A18")
+            _format_run(_paragraph(cell).add_run(_compact(note)), 8, True, "008A18")
+
+    def _add_grid_legends(self, table, weeks: list[list[int]], options: PdfOptions) -> None:
+        if not (options.include_fasting_legend or options.include_service_rank_legend):
+            return
+        segments = []
+        leading = [index for index, value in enumerate(weeks[0]) if not value]
+        trailing = [index for index, value in enumerate(weeks[-1]) if not value]
+        if leading: segments.append((table.rows[1], leading))
+        if trailing: segments.append((table.rows[len(weeks)], trailing))
+        if not segments:
+            return
+        slots: list[tuple[object, list[int], str]] = []
+        if len(segments) == 1 and len(segments[0][1]) >= 2:
+            row, indices = segments[0]; split = max(1, len(indices) // 2)
+            slots = [(row, indices[:split], "fasting"), (row, indices[split:], "rank")]
+        else:
+            if segments: slots.append((segments[0][0], segments[0][1], "fasting"))
+            if len(segments) > 1: slots.append((segments[-1][0], segments[-1][1], "rank"))
+        for row, indices, kind in slots:
+            if not indices or (kind == "fasting" and not options.include_fasting_legend) or (kind == "rank" and not options.include_service_rank_legend):
+                continue
+            cell = row.cells[indices[0]]
+            if len(indices) > 1: cell = cell.merge(row.cells[indices[-1]])
+            _set_cell_margins(cell, 90)
+            self._fill_legend_cell(cell, kind, options)
+
+    @staticmethod
+    def _fill_legend_cell(cell, kind: str, options: PdfOptions) -> None:
+        for paragraph in cell.paragraphs: paragraph.clear()
+        heading = cell.paragraphs[0]
+        heading_text = ("ПОСТ" if options.language == "Russian" else "FASTING") if kind == "fasting" else ("ЛИТУРГИЧЕСКИЙ РАНГ" if options.language == "Russian" else "LITURGICAL RANK")
+        _format_run(heading.add_run(heading_text), 7, True, "111111")
+        if kind == "fasting":
+            strict = _paragraph(cell); _add_shaded_swatch(strict); _format_run(strict.add_run(" Strict fast" if options.language == "English" else " Строгий пост"), 6.5)
+            for glyph, colour, english, russian in (("🌢", "FFC000", "Oil permitted", "Разрешается раст. масло"), ("🐟", "00AEEF", "Fish permitted", "Разрешается рыба")):
+                paragraph = _paragraph(cell); _format_symbol_run(paragraph.add_run(glyph), 9, colour, emoji=True); _format_run(paragraph.add_run(" " + (russian if options.language == "Russian" else english)), 6.5)
+            return
+        for rank in (ServiceRank.GREAT_FEAST, ServiceRank.VIGIL, ServiceRank.POLYELEOS, ServiceRank.DOXOLOGY, ServiceRank.SIX_STICHERA, ServiceRank.NO_SIGN):
+            paragraph = _paragraph(cell); glyph = symbol_for(rank)
+            if glyph: _format_symbol_run(paragraph.add_run(glyph), 7, symbol_colour_for(rank))
+            label = legend_label_for(rank, options.language, options.rank_labels_en, options.rank_labels_ru)
+            _format_run(paragraph.add_run((" " if glyph else "") + label), 6.2, False, "111111")
 
     def _add_daily_details(self, document: Document, options: PdfOptions) -> None:
         title = document.add_paragraph(); title.alignment = WD_ALIGN_PARAGRAPH.CENTER

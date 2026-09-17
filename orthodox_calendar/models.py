@@ -52,7 +52,7 @@ class Saint:
     description: str = ""
     language: str = "en"
     source: Source | None = None
-    selected: bool = True
+    selected: bool = False
     display_order: int = 0
     service_rank: ServiceRank = ServiceRank.NONE
     source_rank_text: str = ""

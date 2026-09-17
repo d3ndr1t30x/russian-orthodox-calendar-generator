@@ -32,6 +32,35 @@ RANK_LABELS = {
     ServiceRank.NONE: ("No Applicable Rank", "Ранг не применяется"),
 }
 
+REFERENCE_LEGEND_LABELS = {
+    ServiceRank.GREAT_FEAST: ("Great Feast Vigil", "Всенощное на великий праздник"),
+    ServiceRank.VIGIL: ("All Night Vigil-ranked service - with Litia", "Всенощное бдение с литией"),
+    ServiceRank.POLYELEOS: ("Polyeleos-ranked service", "Полиелейная служба"),
+    ServiceRank.DOXOLOGY: ("Doxology-ranked service", "Славословная служба"),
+    ServiceRank.SIX_STICHERA: ('"Six sticheron" ranked service', "Шестиричная служба (6-стихир поются)"),
+    ServiceRank.NO_SIGN: ("No sign: ordinary, daily service (3 stichera)", "Без знака: простая, повседневная служба (3-стихир поются)"),
+}
+
+# Exact Unicode signs used by the supplied VIOT calendar. Doxology and
+# Six-Stichera intentionally share U+1F543 and are distinguished by colour.
+RANK_SYMBOLS = {
+    ServiceRank.GREAT_FEAST: "🕀",
+    ServiceRank.VIGIL: "🕁",
+    ServiceRank.POLYELEOS: "🕂",
+    ServiceRank.DOXOLOGY: "🕃",
+    ServiceRank.SIX_STICHERA: "🕃",
+}
+
+RANK_SYMBOL_COLOURS = {
+    ServiceRank.GREAT_FEAST: "CC0000",
+    ServiceRank.VIGIL: "C00000",
+    ServiceRank.POLYELEOS: "C00000",
+    ServiceRank.DOXOLOGY: "C00000",
+    ServiceRank.SIX_STICHERA: "000000",
+}
+
+RED_TEXT_RANKS = {ServiceRank.GREAT_FEAST, ServiceRank.VIGIL, ServiceRank.POLYELEOS}
+
 RANK_PRIORITY = {
     ServiceRank.GREAT_FEAST: 70,
     ServiceRank.VIGIL: 60,
@@ -119,6 +148,14 @@ def localized_rank_name(info: ServiceRankInfo, language: str, overrides_en: dict
     return russian if language == "Russian" else english
 
 
+def legend_label_for(rank: ServiceRank, language: str, overrides_en: dict[str, str] | None = None, overrides_ru: dict[str, str] | None = None) -> str:
+    overrides = overrides_ru if language == "Russian" else overrides_en
+    if overrides and overrides.get(rank.value):
+        return overrides[rank.value]
+    english, russian = REFERENCE_LEGEND_LABELS[rank]
+    return russian if language == "Russian" else english
+
+
 def icon_name_for(rank: ServiceRank | ServiceRankInfo) -> str | None:
     value = rank.normalized_rank if isinstance(rank, ServiceRankInfo) else rank
     return RANK_ICON_NAMES.get(value)
@@ -127,6 +164,21 @@ def icon_name_for(rank: ServiceRank | ServiceRankInfo) -> str | None:
 def icon_path_for(rank: ServiceRank | ServiceRankInfo) -> Path | None:
     name = icon_name_for(rank)
     return asset_path("icons", "rank", f"{name}.png") if name else None
+
+
+def symbol_for(rank: ServiceRank | ServiceRankInfo) -> str:
+    value = rank.normalized_rank if isinstance(rank, ServiceRankInfo) else rank
+    return RANK_SYMBOLS.get(value, "")
+
+
+def symbol_colour_for(rank: ServiceRank | ServiceRankInfo) -> str:
+    value = rank.normalized_rank if isinstance(rank, ServiceRankInfo) else rank
+    return RANK_SYMBOL_COLOURS.get(value, "000000")
+
+
+def rank_text_is_red(rank: ServiceRank | ServiceRankInfo) -> bool:
+    value = rank.normalized_rank if isinstance(rank, ServiceRankInfo) else rank
+    return value in RED_TEXT_RANKS
 
 
 def with_labels(info: ServiceRankInfo, name_en: str, name_ru: str) -> ServiceRankInfo:

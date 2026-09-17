@@ -83,13 +83,12 @@ def test_each_supported_rank_selects_a_distinct_icon():
     assert names == {"great_feast", "vigil", "polyeleos", "doxology", "six_stichera", "no_sign"}
 
 
-def test_pdf_embeds_every_rank_icon_and_cyrillic_rank_legend(tmp_path):
+def test_pdf_uses_reference_symbol_font_and_cyrillic_rank_legend(tmp_path):
     ranks = (ServiceRank.GREAT_FEAST, ServiceRank.VIGIL, ServiceRank.POLYELEOS, ServiceRank.DOXOLOGY, ServiceRank.SIX_STICHERA, ServiceRank.NO_SIGN)
     days = [CalendarDay(date(2027, 1, index), date(2026, 12, 18 + index), service_rank=info(rank)) for index, rank in enumerate(ranks, 1)]
     output = tmp_path / "all-ranks.pdf"
     PdfRenderer().render(output, days, PdfOptions(2027, "Queensland", language="Russian", months=[1], include_fasting_legend=False))
     page = PdfReader(output).pages[0]; text = page.extract_text() or ""
     assert "Полиелейная служба" in text and "Славословная служба" in text and "Без знака" in text
-    xobjects = page["/Resources"]["/XObject"].get_object()
-    images = [obj for obj in xobjects.values() if obj.get_object().get("/Subtype") == "/Image"]
-    assert len(images) >= 6
+    fonts = page["/Resources"]["/Font"].get_object().values()
+    assert any("SegoeUISymbol" in str(font.get_object().get("/BaseFont", "")) for font in fonts)

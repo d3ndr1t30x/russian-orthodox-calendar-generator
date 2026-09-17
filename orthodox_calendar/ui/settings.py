@@ -39,6 +39,7 @@ class SettingsDialog(QDialog):
         self.legend = self._checkbox(settings.include_fasting_legend)
         self.rank_icons = self._checkbox(settings.include_service_rank_icons)
         self.rank_legend = self._checkbox(settings.include_service_rank_legend)
+        self.week_tone = self._checkbox(settings.include_liturgical_week_tone)
         self.sources = self._checkbox(settings.include_sources)
         pdf_layout.addRow("Include Julian dates", self.julian)
         pdf_layout.addRow("Include civil holidays", self.holidays)
@@ -46,6 +47,7 @@ class SettingsDialog(QDialog):
         pdf_layout.addRow("Show compact fasting legend", self.legend)
         pdf_layout.addRow("Show liturgical service-rank icons", self.rank_icons)
         pdf_layout.addRow("Show liturgical service-rank legend", self.rank_legend)
+        pdf_layout.addRow("Show liturgical week / tone", self.week_tone)
         pdf_layout.addRow("Include source footer", self.sources)
 
         rank_layout = QFormLayout(ranks)
@@ -88,6 +90,7 @@ class SettingsDialog(QDialog):
         self.settings.include_fasting_legend = self.legend.isChecked()
         self.settings.include_service_rank_icons = self.rank_icons.isChecked()
         self.settings.include_service_rank_legend = self.rank_legend.isChecked()
+        self.settings.include_liturgical_week_tone = self.week_tone.isChecked()
         self.settings.rank_labels_en = {rank: field.text().strip() for (rank, language), field in self.rank_label_fields.items() if language == "en" and field.text().strip()}
         self.settings.rank_labels_ru = {rank: field.text().strip() for (rank, language), field in self.rank_label_fields.items() if language == "ru" and field.text().strip()}
         self.settings.include_sources = self.sources.isChecked()

@@ -21,7 +21,7 @@ def make_project() -> CalendarProject:
     days = OrthodoxCalendarEngine().generate_year(2027, "Queensland")
     for index, civil_date in enumerate((date(2027, 1, 7), date(2027, 1, 15), date(2027, 2, 3), date(2027, 7, 4))):
         day = next(item for item in days if item.civil_date == civil_date)
-        day.saints = [Saint(8000 + index, f"Source {index}", f"Source Saint {index}", civil_date)]
+        day.saints = [Saint(8000 + index, f"Source {index}", f"Source Saint {index}", civil_date, selected=True)]
         day.service_rank = ServiceRankInfo(ServiceRank.POLYELEOS, "Polyeleos", "Полиелейная служба")
     project = CalendarProject.create("UX Test", ProjectSettings(2027, "Queensland"), days, "2027.test")
     for civil_date in (date(2027, 1, 7), date(2027, 1, 15), date(2027, 2, 3), date(2027, 7, 4)):
@@ -34,7 +34,7 @@ def test_day_cell_hover_preserves_semantic_background_and_double_click(qtbot):
     day = CalendarDay(date(2027, 1, 7), date(2026, 12, 25), service_rank=ServiceRankInfo(ServiceRank.GREAT_FEAST, "Great Feast", ""))
     cell = DayCell(day); qtbot.addWidget(cell); opened = []
     cell.editRequested.connect(opened.append); initial = cell.styleSheet()
-    assert "#F8CACA" in initial and cell.rank_text == "Great Feast" and not cell.icon().isNull()
+    assert "#F8CACA" in initial and cell.rank_text == "Great Feast" and "🕀" in cell.text() and cell.icon().isNull()
     QApplication.sendEvent(cell, QEnterEvent(QPointF(1, 1), QPointF(1, 1), QPointF(1, 1)))
     assert cell.hovered and "#F8CACA" in cell.styleSheet() and "#2474B5" in cell.styleSheet()
     qtbot.mouseDClick(cell, Qt.LeftButton)
@@ -104,11 +104,12 @@ def test_central_rank_icon_mapping_is_shared_by_pdf_and_gui():
         assert icon_name_for(info) == expected and PdfRenderer.rank_icon_name(day) == expected
 
 
-def test_every_supported_rank_has_icon_and_text_in_viewer_and_editor(qtbot):
+def test_every_supported_rank_has_source_symbol_only_in_viewer_and_icon_text_in_editor(qtbot):
     for index, rank in enumerate(RANK_ICON_NAMES, 1):
         info = ServiceRankInfo(rank, "", ""); day = CalendarDay(date(2027, 1, index), date(2026, 12, 18 + index), service_rank=info)
         cell = DayCell(day); qtbot.addWidget(cell)
-        assert cell.rank_text and not cell.icon().isNull()
+        assert cell.rank_text and cell.icon().isNull()
+        assert "\n" not in cell.text() and str(day.civil_date.day) in cell.text()
         editor = CalendarEditor([day], initial_date=day.civil_date); qtbot.addWidget(editor)
         assert editor.rank_text.text() and editor.rank_icon.pixmap() and not editor.rank_icon.pixmap().isNull()
 

@@ -46,6 +46,7 @@ def test_database_and_engine_select_language_and_source_fasting(tmp_path):
     english_day = OrthodoxCalendarEngine(db).generate_year(2027, "Queensland", "English")[6]
     russian_day = OrthodoxCalendarEngine(db).generate_year(2027, "Queensland", "Russian / Русский")[6]
     assert english_day.saints[0].display_name.startswith("Venerable Test")
+    assert not english_day.saints[0].selected
     assert russian_day.saints[0].display_name == "Преподобный Тест."
     assert english_day.fasting.level == FastLevel.FREE
     assert english_day.tone == 6

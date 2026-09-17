@@ -89,6 +89,7 @@ def main(argv: list[str] | None = None) -> int:
             include_fasting_legend=project.settings.include_fasting_legend if project else settings.include_fasting_legend,
             include_service_rank_icons=project.settings.include_service_rank_icons if project else settings.include_service_rank_icons,
             include_service_rank_legend=project.settings.include_service_rank_legend if project else settings.include_service_rank_legend,
+            include_liturgical_week_tone=project.settings.include_liturgical_week_tone if project else settings.include_liturgical_week_tone,
             rank_labels_en=project.settings.rank_labels_en if project else settings.rank_labels_en, rank_labels_ru=project.settings.rank_labels_ru if project else settings.rank_labels_ru,
             months=months,
             parish_name=project.settings.parish_name if project else settings.parish_name,

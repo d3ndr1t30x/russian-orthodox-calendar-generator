@@ -16,9 +16,9 @@ def make_project(year=2027, language="English"):
     days = OrthodoxCalendarEngine().generate_year(year, "Queensland", language)
     target = days[6]
     target.saints = [
-        Saint(101, "Saint Alpha", "Saint Alpha", target.civil_date, source=Source("TEST DATA — NOT FOR LITURGICAL USE"), display_order=0),
-        Saint(102, "Saint Beta", "Saint Beta", target.civil_date, source=Source("TEST DATA — NOT FOR LITURGICAL USE"), display_order=1),
-        Saint(103, "Saint Gamma", "Saint Gamma", target.civil_date, source=Source("TEST DATA — NOT FOR LITURGICAL USE"), display_order=2),
+        Saint(101, "Saint Alpha", "Saint Alpha", target.civil_date, source=Source("TEST DATA — NOT FOR LITURGICAL USE"), selected=True, display_order=0),
+        Saint(102, "Saint Beta", "Saint Beta", target.civil_date, source=Source("TEST DATA — NOT FOR LITURGICAL USE"), selected=True, display_order=1),
+        Saint(103, "Saint Gamma", "Saint Gamma", target.civil_date, source=Source("TEST DATA — NOT FOR LITURGICAL USE"), selected=True, display_order=2),
     ]
     settings = ProjectSettings(year, "Queensland", language)
     return CalendarProject.create(f"TEST {year} Queensland", settings, days, f"{year}.test", "2026-08-26T00:00:00+00:00")

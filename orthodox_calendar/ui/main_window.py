@@ -25,7 +25,7 @@ from orthodox_calendar.projects import CalendarProject, ProjectSettings, Project
 from orthodox_calendar.rendering.pdf_renderer import PdfOptions, PdfRenderer
 from orthodox_calendar.rendering.docx_renderer import DocxRenderer
 from orthodox_calendar.services.synchronization import SynchronizationService
-from orthodox_calendar.service_ranks import icon_path_for, labels_for
+from orthodox_calendar.service_ranks import labels_for, symbol_for
 from .calendar_editor import CalendarEditor
 from .preview import PreviewDialog
 from .project_dialogs import NewProjectDialog
@@ -59,9 +59,7 @@ class DayCell(QToolButton):
         rank = day.service_rank.normalized_rank
         supported = {ServiceRank.GREAT_FEAST, ServiceRank.VIGIL, ServiceRank.POLYELEOS, ServiceRank.DOXOLOGY, ServiceRank.SIX_STICHERA, ServiceRank.NO_SIGN}
         self.rank_text = labels_for(rank)[0] if rank in supported else ""
-        self.setText(f"{day.civil_date.day}\n{self.rank_text}")
-        rank_path = icon_path_for(day.service_rank)
-        if rank_path and rank_path.exists(): self.setIcon(QIcon(str(rank_path)))
+        self.setText(f"{day.civil_date.day} {symbol_for(day.service_rank)}".rstrip())
         self.edit_indicator = EditIndicator(self); self.edit_indicator.setFixedSize(16, 16); self.edit_indicator.setAlignment(Qt.AlignCenter)
         edit_path = asset_path("icons", "edit.svg")
         if day.is_edited and edit_path.exists():
@@ -89,7 +87,8 @@ class DayCell(QToolButton):
         background = "#F8CACA" if major else ("#D3D3D3" if strict else "#FFFFFF")
         border = "#2474B5" if self.hovered else ("#185C37" if self.selected else "#C7C0B8")
         width = 2 if self.hovered or self.selected else 1
-        color = "#B00000" if self.day.civil_date.weekday() == 6 or major else "#222222"
+        rank_red = self.day.service_rank.normalized_rank in {ServiceRank.GREAT_FEAST, ServiceRank.VIGIL, ServiceRank.POLYELEOS}
+        color = "#B00000" if self.day.civil_date.weekday() == 6 or rank_red else "#222222"
         self.setStyleSheet(f"QToolButton {{ background:{background}; color:{color}; border:{width}px solid {border}; border-radius:3px; padding:2px; font-size:7pt; font-weight:600; }}")
 
     def set_selected(self, selected: bool) -> None:
@@ -248,7 +247,7 @@ class MainWindow(QMainWindow):
             include_julian=base.include_julian if base else self.settings.include_julian, include_holidays=base.include_holidays if base else self.settings.include_holidays,
             include_sources=base.include_sources if base else self.settings.include_sources, include_fasting_icons=base.include_fasting_icons if base else self.settings.include_fasting_icons,
             include_fasting_legend=base.include_fasting_legend if base else self.settings.include_fasting_legend, include_service_rank_icons=base.include_service_rank_icons if base else self.settings.include_service_rank_icons,
-            include_service_rank_legend=base.include_service_rank_legend if base else self.settings.include_service_rank_legend, rank_labels_en=dict(base.rank_labels_en if base else self.settings.rank_labels_en),
+            include_service_rank_legend=base.include_service_rank_legend if base else self.settings.include_service_rank_legend, include_liturgical_week_tone=base.include_liturgical_week_tone if base else self.settings.include_liturgical_week_tone, rank_labels_en=dict(base.rank_labels_en if base else self.settings.rank_labels_en),
             rank_labels_ru=dict(base.rank_labels_ru if base else self.settings.rank_labels_ru), parish_name=base.parish_name if base else self.settings.parish_name, parish_logo=base.parish_logo if base else self.settings.parish_logo,
             address=base.address if base else self.settings.address, website=base.website if base else self.settings.website, phone=base.phone if base else self.settings.phone,
             custom_header=base.custom_header if base else self.settings.custom_header, custom_footer=base.custom_footer if base else self.settings.custom_footer,
@@ -444,7 +443,15 @@ class MainWindow(QMainWindow):
     def _options(self) -> PdfOptions:
         p = self.project.settings if self.project else self._settings_from_controls()
         logo = self.project.materialize_parish_logo(ensure_user_dirs()["cache"] / "project-assets" / self.project.project_id) if self.project else p.parish_logo
-        return PdfOptions(p.year, p.jurisdiction, p.template, p.orientation, p.language, p.include_julian, p.include_holidays, p.include_sources, p.include_fasting_icons, p.include_fasting_legend, p.include_service_rank_icons, p.include_service_rank_legend, p.rank_labels_en, p.rank_labels_ru, list(range(1, 13)), p.parish_name, logo, p.custom_header, p.custom_footer)
+        return PdfOptions(
+            year=p.year, jurisdiction=p.jurisdiction, template=p.template, orientation=p.orientation, language=p.language,
+            include_julian=p.include_julian, include_holidays=p.include_holidays, include_sources=p.include_sources,
+            include_fasting_icons=p.include_fasting_icons, include_fasting_legend=p.include_fasting_legend,
+            include_service_rank_icons=p.include_service_rank_icons, include_service_rank_legend=p.include_service_rank_legend,
+            include_liturgical_week_tone=p.include_liturgical_week_tone,
+            rank_labels_en=p.rank_labels_en, rank_labels_ru=p.rank_labels_ru, months=list(range(1, 13)),
+            parish_name=p.parish_name, parish_logo=logo, custom_header=p.custom_header, custom_footer=p.custom_footer,
+        )
 
     def _default_output(self) -> Path:
         p = self.project.settings if self.project else self._settings_from_controls(); paths = ensure_user_dirs(); folder = Path(self.settings.output_directory) if self.settings.output_directory else paths["output"]
@@ -572,7 +579,7 @@ class MainWindow(QMainWindow):
             if dialog.exec(): dialog.apply(); self.store.save(self.settings); self.language.setCurrentText(self.settings.language); self.orientation.setCurrentText(self.settings.orientation)
 
     def about(self) -> None:
-        QMessageBox.about(self, "About", "<h2>Russian Orthodox Calendar Generator</h2><p>Version 1.7.0</p><p>Editable Word export, explicit primary saints and derived edited-day indicators complement PDF publishing and portable .rocproject documents.</p>")
+        QMessageBox.about(self, "About", "<h2>Russian Orthodox Calendar Generator</h2><p>Version 1.8.0</p><p>Source-faithful feast-rank and fasting symbols, matched Word/PDF publication styling, optional Liturgical Week / Tone display and hidden-by-default saints complement portable .rocproject documents.</p>")
 
     def run_gui_smoke_test(self) -> None:
         """Exercise packaged viewer/editor UX and exit non-zero on failure."""
@@ -581,7 +588,7 @@ class MainWindow(QMainWindow):
         try:
             target = next((date.fromisoformat(key) for key in self.project.overrides), self.days[0].civil_date)
             self.select_day(target); card = self.month_cards[target.month - 1]; cell = card.day_cells[target]
-            if cell.icon().isNull() or not cell.rank_text: raise RuntimeError("Viewer rank icon/text was not rendered")
+            if symbol_for(cell.day.service_rank) not in cell.text() or not cell.icon().isNull(): raise RuntimeError("Viewer source rank symbol was not rendered")
             if not cell.day.is_edited or cell.edit_indicator.isHidden() or "Edited from default" not in cell.edit_indicator.toolTip(): raise RuntimeError("Edited-day pencil indicator was not rendered")
             cell.hovered = True; cell._apply_style()
             if "#2474B5" not in cell.styleSheet(): raise RuntimeError("Day hover highlight was not applied")

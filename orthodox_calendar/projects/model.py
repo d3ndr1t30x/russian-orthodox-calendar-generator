@@ -19,7 +19,7 @@ from orthodox_calendar.models import (
 )
 
 
-PROJECT_SCHEMA_VERSION = 2
+PROJECT_SCHEMA_VERSION = 3
 SUPPORTED_LANGUAGES = {"English", "Russian"}
 SUPPORTED_TEMPLATES = {"Traditional", "Minimal", "Parish"}
 SUPPORTED_ORIENTATIONS = {"Landscape", "Portrait"}
@@ -101,7 +101,7 @@ def _saint_from_dict(data: dict[str, Any], fallback_date: date) -> Saint:
         str(data.get("display_name", data.get("canonical_name", "Unknown saint"))),
         date.fromisoformat(data.get("commemoration_date", fallback_date.isoformat())),
         str(data.get("category", "Saint")), str(data.get("rank", "")), str(data.get("description", "")),
-        str(data.get("language", "en")), _source_from_dict(data.get("source")), bool(data.get("selected", True)),
+        str(data.get("language", "en")), _source_from_dict(data.get("source")), bool(data.get("selected", False)),
         int(data.get("display_order", 0)), ServiceRank(data.get("service_rank", ServiceRank.NONE.value)),
         str(data.get("source_rank_text", "")), int(data.get("source_order", data.get("display_order", 0))),
         bool(data.get("source_primary", False)),
@@ -223,6 +223,7 @@ class ProjectSettings:
     include_fasting_legend: bool = True
     include_service_rank_icons: bool = True
     include_service_rank_legend: bool = True
+    include_liturgical_week_tone: bool = True
     rank_labels_en: dict[str, str] = field(default_factory=dict)
     rank_labels_ru: dict[str, str] = field(default_factory=dict)
     parish_name: str = ""
@@ -601,4 +602,11 @@ def _migrate_v1_to_v2(data: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
-PROJECT_MIGRATIONS: dict[int, Any] = {1: _migrate_v1_to_v2}
+def _migrate_v2_to_v3(data: dict[str, Any]) -> dict[str, Any]:
+    settings = data.setdefault("settings", {})
+    settings.setdefault("include_liturgical_week_tone", True)
+    data["project_schema_version"] = 3
+    return data
+
+
+PROJECT_MIGRATIONS: dict[int, Any] = {1: _migrate_v1_to_v2, 2: _migrate_v2_to_v3}

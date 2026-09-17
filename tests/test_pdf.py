@@ -10,7 +10,7 @@ from orthodox_calendar.rendering.pdf_renderer import PdfOptions, PdfRenderer
 
 def test_annual_pdf_is_twelve_a4_pages_and_contains_cyrillic(tmp_path):
     days = OrthodoxCalendarEngine().generate_year(2027, "Queensland")
-    days[6].saints.append(Saint(1, "Test", "Святитель Иоанн Златоуст with an intentionally very long name that must never overflow the day cell", date(2027, 1, 7), source=Source("Test")))
+    days[6].saints.append(Saint(1, "Test", "Святитель Иоанн Златоуст with an intentionally very long name that must never overflow the day cell", date(2027, 1, 7), source=Source("Test"), selected=True))
     output = tmp_path / "calendar.pdf"
     PdfRenderer().render(output, days, PdfOptions(2027, "Queensland"))
     reader = PdfReader(output)
@@ -28,14 +28,15 @@ def test_selected_month_and_landscape(tmp_path):
     assert float(reader.pages[0].mediabox.width) > float(reader.pages[0].mediabox.height)
 
 
-def test_russian_pdf_uses_cyrillic_source_text_and_embedded_images(tmp_path):
+def test_russian_pdf_uses_cyrillic_source_text_and_reference_symbol_font(tmp_path):
     days = OrthodoxCalendarEngine().generate_year(2027, "Queensland", "Russian")
-    days[0].saints.append(Saint(2, "Test", "Святитель Иоанн", date(2027, 1, 1), source=Source("Test")))
+    days[0].saints.append(Saint(2, "Test", "Святитель Иоанн", date(2027, 1, 1), source=Source("Test"), selected=True))
     output = tmp_path / "russian.pdf"
     PdfRenderer().render(output, days, PdfOptions(2027, "Queensland", language="Russian", months=[1]))
     reader = PdfReader(output); text = reader.pages[0].extract_text() or ""
     assert "Январь" in text and "Святитель Иоанн" in text
-    assert "/XObject" in reader.pages[0]["/Resources"]
+    fonts = reader.pages[0]["/Resources"]["/Font"].get_object().values()
+    assert any("SegoeUISymbol" in str(font.get_object().get("/BaseFont", "")) for font in fonts)
 
 
 def test_visual_priority_and_permission_icon_rules():

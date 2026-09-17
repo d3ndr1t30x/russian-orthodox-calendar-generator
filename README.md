@@ -1,9 +1,9 @@
 # Russian Orthodox Calendar Generator
 
-Version 1.7.0 adds direct editable Word export, explicit primary saints and derived edited-day indicators to the portable `.rocproject` workflow and A4 landscape, Sunday-first publication layout reverse-
-engineered from the supplied bilingual calendar reference. The renderer keeps
-calendar content dynamic while matching the reference's typography, grid,
-colours, icons, fasting washes, and compact legends.
+Version 1.8.0 reproduces the supplied calendar's original Typikon and fasting
+font symbols in both PDF and editable Word output. Rank symbols sit inline with
+commemorations, fasting symbols remain at the top right, legends occupy unused
+calendar cells, saints begin hidden, and Liturgical Week / Tone is optional.
 
 The measured design specification is in [`design/`](design). Generate a stress
 month and optional reference comparison with:
@@ -22,9 +22,10 @@ A Windows desktop application for producing print-ready Russian Orthodox calenda
 - Original English and Russian Holy Trinity source content; Russian liturgical text is not machine-translated.
 - Gregorian civil dates and Julian church dates.
 - Source-derived Typikon service ranks: Great Feast, Vigil, Polyeleos, Doxology, Six Stichera and No Sign.
-- Distinct, bundled service-rank and fasting-permission icons that remain available offline.
+- Original source-document service-rank and fasting-permission font symbols that remain available offline.
 - Great Feast/Vigil pink washes, strict-fast grey washes and restrained print-friendly styling.
-- Select, deselect, search and reorder saints before publication.
+- Saints hidden by default, with selection, search and reordering before publication.
+- Optional Liturgical Week / Tone line above the saints list.
 - Deterministic source-derived default primary saints, explicit primary selection and project-only added saints.
 - Australian state and territory public holidays using `python-holidays`.
 - SQLite provenance, bilingual source records, cache-first synchronization and user overrides.
@@ -39,7 +40,7 @@ A Windows desktop application for producing print-ready Russian Orthodox calenda
 ## Install the Windows release
 
 1. Open the repository's **Releases** page.
-2. Download `RussianOrthodoxCalendar-1.7.0-windows-x64.zip`.
+2. Download `RussianOrthodoxCalendar-1.8.0-windows-x64.zip`.
 3. Extract the complete archive.
 4. Run `RussianOrthodoxCalendar.exe`.
 
@@ -61,7 +62,7 @@ Open an existing document with **File > Open Project** (`Ctrl+O`), the Recent Pr
 
 The saved year, jurisdiction, language, saint selections and exclusions, exact order, primary saint, overrides, notes, parish details and PDF settings replace global defaults when reopened. **Close Project** (`Ctrl+W`), New, Open and application exit all offer Save / Don't Save / Cancel when necessary.
 
-The annual viewer is directly interactive: hover anywhere over a date to outline its complete cell, single-click to select it, and double-click to open that exact date in the day editor. Service ranks appear as icon plus text in both the viewer and the editor's always-visible rank banner. The editor can be resized, minimized or maximized; its detail sections can be expanded or collapsed and remain reachable through scrolling at smaller window sizes.
+The annual viewer is directly interactive: hover anywhere over a date to outline its complete cell, single-click to select it, and double-click to open that exact date in the day editor. Service ranks appear as source symbols in day cells and as named classifications in the editor's always-visible rank banner. The editor can be resized, minimized or maximized; its detail sections can be expanded or collapsed and remain reachable through scrolling at smaller window sizes.
 
 Days whose effective saint selection/order, primary saint, feast, rank, fasting or notes differ from the saved authoritative snapshot show a small pencil. Its tooltip identifies the day as edited. Merely opening or saving an unchanged day does not create an edit. Reset recalculates the state immediately and removes the pencil when defaults are restored.
 
@@ -71,7 +72,7 @@ Use **Edit > Reset Day**, **Reset Month**, or **Reset Year** to remove project o
 
 ## Project files, portability and recovery
 
-A `.rocproject` file is readable, indented JSON with `project_schema_version: 2`. It contains project metadata, one annual source snapshot, deterministic default primary-saint identity, source version/provenance, explicit overrides and publication settings. Version-1 projects migrate automatically when opened. Edited status is derived from effective state rather than stored as a stale flag.
+A `.rocproject` file is readable, indented JSON with `project_schema_version: 3`. It contains project metadata, one annual source snapshot, deterministic default primary-saint identity, source version/provenance, explicit overrides and publication settings. Earlier projects migrate automatically when opened. Edited status is derived from effective state rather than stored as a stale flag.
 
 Project writes are atomic. Before an existing file is replaced, one `.rocproject.bak` copy is retained. While changes are unsaved, the application periodically writes a separate `.rocproject.recovery` file and offers Recover or Discard when that project is next opened. These files never silently replace the main document.
 

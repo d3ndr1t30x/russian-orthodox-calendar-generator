@@ -8,7 +8,7 @@ from pathlib import Path
 
 @dataclass
 class Settings:
-    config_version: int = 4
+    config_version: int = 5
     default_year: int = 0
     jurisdiction: str = "Queensland"
     language: str = "English"
@@ -22,6 +22,7 @@ class Settings:
     include_fasting_legend: bool = True
     include_service_rank_icons: bool = True
     include_service_rank_legend: bool = True
+    include_liturgical_week_tone: bool = True
     rank_labels_en: dict[str, str] = field(default_factory=dict)
     rank_labels_ru: dict[str, str] = field(default_factory=dict)
     output_directory: str = ""
@@ -54,6 +55,8 @@ class SettingsStore:
                 data.update({"config_version": 3, "include_service_rank_icons": True, "include_service_rank_legend": True, "rank_labels_en": {}, "rank_labels_ru": {}})
             if int(data.get("config_version", 1)) < 4:
                 data.update({"config_version": 4, "recent_projects": []})
+            if int(data.get("config_version", 1)) < 5:
+                data.update({"config_version": 5, "include_liturgical_week_tone": True})
             if str(data.get("language", "")).startswith("Russian"):
                 data["language"] = "Russian"
             return Settings(**{k: v for k, v in data.items() if k in Settings.__dataclass_fields__})
