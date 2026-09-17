@@ -70,6 +70,31 @@ def test_docx_uses_inline_rank_top_right_fast_symbol_eight_point_type_and_grid_l
     assert all("Polyeleos-ranked service" not in paragraph.text for paragraph in document.paragraphs)
 
 
+def test_docx_matches_measured_reference_grid_typography_and_colours(tmp_path):
+    output = tmp_path / "measured-reference.docx"
+    DocxRenderer().render(output, [sample_day()], PdfOptions(2027, "Queensland", months=[1]))
+    document = Document(output)
+    section = document.sections[0]
+    assert round(section.left_margin.mm, 2) == round(section.right_margin.mm, 2) == 7
+    assert abs(section.top_margin.mm - 5) < .02 and abs(section.bottom_margin.mm - 5) < .02
+    table = document.tables[0]
+    assert len(table.columns) == 7
+    assert round(table.rows[0].height.mm, 1) == 4.6
+    assert round(table.rows[1].height.mm, 2) == 17.37
+    assert table.rows[0].cells[0]._tc.tcPr.find(qn("w:shd")).get(qn("w:fill")) == "990000"
+    assert table.rows[0].cells[1]._tc.tcPr.find(qn("w:shd")).get(qn("w:fill")) == "0066FF"
+    assert table.rows[0].cells[0].paragraphs[0].runs[0].font.size.pt == 9
+    assert table.rows[1].cells[0].paragraphs[0].runs[0].font.size.pt == 40
+    assert table.rows[1].cells[0].paragraphs[0].runs[0].font.name == "Times New Roman"
+    day_cell = next(cell for row in table.rows for cell in row.cells if "Reference-ranked saint" in cell.text)
+    date_runs = day_cell.paragraphs[0].runs
+    assert date_runs[0].font.size.pt == 28 and date_runs[0].font.name == "Times New Roman"
+    assert date_runs[1].font.size.pt == 14 and date_runs[1].font.name == "Times New Roman"
+    margins = day_cell._tc.tcPr.first_child_found_in("w:tcMar")
+    assert all(margins.find(qn(f"w:{edge}")).get(qn("w:w")) == "115" for edge in ("top", "left", "bottom", "right"))
+    assert day_cell._tc.tcPr.find(qn("w:shd")).get(qn("w:fill")) == "BFBFBF"
+
+
 def test_week_tone_toggle_controls_both_word_and_pdf(tmp_path):
     day = sample_day()
     for enabled in (True, False):

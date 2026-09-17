@@ -1,7 +1,7 @@
 # Russian Orthodox Calendar Generator
 
-Version 1.8.0 reproduces the supplied calendar's original Typikon and fasting
-font symbols in both PDF and editable Word output. Rank symbols sit inline with
+Version 1.9.0 reproduces the supplied calendar references' measured monthly
+layout in both PDF and editable Word output. Rank symbols sit inline with
 commemorations, fasting symbols remain at the top right, legends occupy unused
 calendar cells, saints begin hidden, and Liturgical Week / Tone is optional.
 
@@ -40,7 +40,7 @@ A Windows desktop application for producing print-ready Russian Orthodox calenda
 ## Install the Windows release
 
 1. Open the repository's **Releases** page.
-2. Download `RussianOrthodoxCalendar-1.8.0-windows-x64.zip`.
+2. Download `RussianOrthodoxCalendar-1.9.0-windows-x64.zip`.
 3. Extract the complete archive.
 4. Run `RussianOrthodoxCalendar.exe`.
 

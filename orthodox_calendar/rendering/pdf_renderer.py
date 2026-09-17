@@ -55,11 +55,11 @@ class PdfOptions:
 @dataclass(frozen=True, slots=True)
 class PublicationPalette:
     ink = HexColor("#111111")
-    sunday = HexColor("#C00000")
-    weekday = HexColor("#006FEF")
-    strict = HexColor("#C7C7C7")
-    feast_wash = HexColor("#F8CACA")
-    feast = HexColor("#D00000")
+    sunday = HexColor("#971F25")
+    weekday = HexColor("#3E62B0")
+    strict = HexColor("#BFBFBF")
+    feast_wash = HexColor("#FFCCCC")
+    feast = HexColor("#CC0000")
     holiday = HexColor("#243CFF")
     note = HexColor("#009B16")
     white = HexColor("#FFFFFF")
@@ -156,15 +156,15 @@ class HeaderRenderer:
             c.setFillColor(self.palette.sunday if index == 0 else self.palette.weekday)
             c.rect(x + index * col, top - self.layout.weekday_height, col, self.layout.weekday_height, fill=1, stroke=1)
             c.setFillColor(self.palette.white)
-            c.setFont(self.fonts["sans_bold"], 7.5)
-            c.drawCentredString(x + (index + .5) * col, top - 3.25 * mm, label)
+            c.setFont(self.fonts["sans_bold"], 9)
+            c.drawCentredString(x + (index + .5) * col, top - 3.45 * mm, label)
         title_y = top - self.layout.weekday_height - self.layout.title_height
         c.setFillColor(self.palette.white)
         c.rect(x, title_y, width, self.layout.title_height, fill=1, stroke=1)
         title = MONTHS_RU[month] if options.language == "Russian" else calendar.month_name[month]
         c.setFillColor(self.palette.ink)
-        c.setFont(self.fonts["serif"], 28)
-        c.drawCentredString(x + width / 2, title_y + 4.0 * mm, title)
+        c.setFont(self.fonts["serif"], 40)
+        c.drawCentredString(x + width / 2, title_y + 3.8 * mm, title)
         if options.custom_header or options.parish_name:
             c.setFont(self.fonts["sans"], 5.4)
             c.drawRightString(x + width - 2 * mm, title_y + 2 * mm, options.custom_header or options.parish_name)
@@ -181,25 +181,25 @@ class DayCellRenderer:
             return "great_feast"
         if day.service_rank.normalized_rank == ServiceRank.VIGIL or any("vigil" in f.liturgical_status.casefold() or "бден" in f.liturgical_status.casefold() for f in day.feasts):
             return "vigil"
-        if day.fasting and day.fasting.level == FastLevel.STRICT:
-            return "strict_fast"
+        if day.fasting and day.fasting.level != FastLevel.FREE:
+            return "fast_day"
         return "normal"
 
     def draw(self, c: Canvas, day: CalendarDay, x: float, y: float, w: float, h: float, options: PdfOptions) -> None:
         state = self.visual_state(day)
-        background = self.palette.feast_wash if state in {"great_feast", "vigil"} else self.palette.strict if state == "strict_fast" else self.palette.white
+        background = self.palette.feast_wash if state in {"great_feast", "vigil"} else self.palette.strict if state == "fast_day" else self.palette.white
         c.setFillColor(background)
         c.rect(x + .25, y + .25, w - .5, h - .5, fill=1, stroke=0)
         pad = self.layout.cell_padding
         is_sunday = day.civil_date.weekday() == 6
         date_colour = self.palette.feast if state in {"great_feast", "vigil"} or is_sunday else self.palette.ink
         c.setFillColor(date_colour)
-        c.setFont(self.fonts["serif"], 21)
-        date_y = y + h - 7.7 * mm
+        c.setFont(self.fonts["serif"], 28)
+        date_y = y + h - 9.5 * mm
         c.drawString(x + pad, date_y, str(day.civil_date.day))
-        civil_w = pdfmetrics.stringWidth(str(day.civil_date.day), self.fonts["serif"], 21)
+        civil_w = pdfmetrics.stringWidth(str(day.civil_date.day), self.fonts["serif"], 28)
         if options.include_julian:
-            c.setFont(self.fonts["serif"], 9)
+            c.setFont(self.fonts["serif"], 14)
             c.drawString(x + pad + civil_w + .5 * mm, date_y + .4 * mm, str(day.julian_date.day))
 
         fasting_symbols = self.icons.fasting_symbol_names(day) if options.include_fasting_icons else []
@@ -210,10 +210,10 @@ class DayCellRenderer:
             c.setFillColor(HexColor(colour))
             c.drawRightString(x + w - pad, y + h - 6.5 * mm, glyph)
 
-        cursor = y + h - 10.1 * mm
+        cursor = y + h - 13.0 * mm
         holiday_space = 6.0 * mm if options.include_holidays and day.public_holidays else 1.8 * mm
         bottom = y + holiday_space
-        line_gap = 2.55 * mm
+        line_gap = 2.8 * mm
         text_width = w - 2 * pad
         if options.include_liturgical_week_tone and (day.liturgical_week or day.tone):
             tone = ("Глас " if options.language == "Russian" else "Tone ") + str(day.tone) if day.tone else ""
@@ -254,9 +254,9 @@ class DayCellRenderer:
                 continue
             major = kind == "feast" and (state in {"great_feast", "vigil"} or prominent)
             font = self.fonts["sans_bold"] if major or prominent or kind == "note" else self.fonts["sans"]
-            size = 6.4 if major else (5.5 if kind == "note" else 5.75)
+            size = 10 if major else 8
             glyph = symbol_for(rank) if options.include_service_rank_icons else ""
-            symbol_size = 7.5
+            symbol_size = 8
             symbol_advance = (pdfmetrics.stringWidth(glyph, self.fonts["symbols"], symbol_size) + .8 * mm) if glyph else 0
             lines = TextFitter.lines(text, font, size, text_width - symbol_advance, min(3 if major else 2, available))
             text_colour = self.palette.note if kind == "note" else (self.palette.feast if major or rank_text_is_red(rank) else self.palette.ink)
@@ -282,14 +282,14 @@ class DayCellRenderer:
                 c.drawString(text_x, cursor, line)
                 cursor -= line_gap
         if omitted and cursor >= bottom:
-            c.setFont(self.fonts["sans"], 5.2)
+            c.setFont(self.fonts["sans"], 7)
             c.setFillColor(self.palette.muted)
             c.drawString(x + pad, cursor, f"+{omitted} ещё" if options.language == "Russian" else f"+{omitted} more")
 
         if options.include_holidays and day.public_holidays:
             c.setFillColor(self.palette.holiday)
-            c.setFont(self.fonts["sans_bold"], 5.5)
-            lines = TextFitter.lines(day.public_holidays[0].name, self.fonts["sans_bold"], 5.5, text_width, 2)
+            c.setFont(self.fonts["sans_bold"], 8)
+            lines = TextFitter.lines(day.public_holidays[0].name, self.fonts["sans_bold"], 8, text_width, 2)
             for index, line in enumerate(reversed(lines)):
                 c.drawCentredString(x + w / 2, y + 1.8 * mm + index * 2.3 * mm, line)
 
@@ -397,10 +397,9 @@ class MonthRenderer:
         if trailing and options.include_service_rank_legend:
             self.legend.draw_integrated(c, x + (7 - trailing) * cell_w, grid_bottom, trailing * cell_w, cell_h, options, "rank")
         c.setFillColor(self.palette.muted)
-        c.setFont(self.fonts["sans"], 4.0)
-        footer = options.custom_footer or ("Данные требуют проверки по официальному церковному календарю." if options.language == "Russian" else "Verify calendar data against the current official church calendar.")
-        c.drawString(x, 1.6 * mm, footer)
-        c.drawRightString(x + width, 1.6 * mm, f"{page}/{total} | {options.year} | {options.jurisdiction}")
+        c.setFont(self.fonts["sans"], 8)
+        footer = options.custom_footer or f"Russian Orthodox Calendar {options.year} - {options.jurisdiction}"
+        c.drawCentredString(x + width / 2, 1.5 * mm, footer)
 
 
 class PdfRenderer:
@@ -415,12 +414,21 @@ class PdfRenderer:
 
     @staticmethod
     def _register_fonts() -> dict[str, str]:
-        symbol_path = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts" / "seguisym.ttf"
-        definitions = {"sans": ("NotoSans", asset_path("fonts", "NotoSans-Regular.ttf")), "sans_bold": ("NotoSans-Bold", asset_path("fonts", "NotoSans-Bold.ttf")), "serif": ("NotoSerif", asset_path("fonts", "NotoSerif-Regular.ttf")), "serif_bold": ("NotoSerif-Bold", asset_path("fonts", "NotoSerif-Bold.ttf")), "symbols": ("SegoeUISymbol", symbol_path)}
-        for name, path in definitions.values():
-            if path.exists() and name not in pdfmetrics.getRegisteredFontNames():
+        fonts_dir = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts"
+        candidates = {
+            "sans": (("ArialNarrow", fonts_dir / "ARIALN.TTF"), ("NotoSans", asset_path("fonts", "NotoSans-Regular.ttf"))),
+            "sans_bold": (("ArialNarrow-Bold", fonts_dir / "ARIALNB.TTF"), ("NotoSans-Bold", asset_path("fonts", "NotoSans-Bold.ttf"))),
+            "serif": (("TimesNewRoman", fonts_dir / "times.ttf"), ("NotoSerif", asset_path("fonts", "NotoSerif-Regular.ttf"))),
+            "serif_bold": (("TimesNewRoman-Bold", fonts_dir / "timesbd.ttf"), ("NotoSerif-Bold", asset_path("fonts", "NotoSerif-Bold.ttf"))),
+            "symbols": (("SegoeUISymbol", fonts_dir / "seguisym.ttf"),),
+        }
+        result: dict[str, str] = {}
+        for key, choices in candidates.items():
+            name, path = next(((name, path) for name, path in choices if path.exists()), ("", Path()))
+            if name and name not in pdfmetrics.getRegisteredFontNames():
                 pdfmetrics.registerFont(TTFont(name, str(path)))
-        return {key: name if path.exists() else ("Helvetica-Bold" if "bold" in key else "Helvetica") for key, (name, path) in definitions.items()}
+            result[key] = name or ("Helvetica-Bold" if "bold" in key else "Helvetica")
+        return result
 
     visual_state = staticmethod(DayCellRenderer.visual_state)
     permission_icons = staticmethod(IconRenderer.permissions)

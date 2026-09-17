@@ -42,7 +42,7 @@ def test_russian_pdf_uses_cyrillic_source_text_and_reference_symbol_font(tmp_pat
 def test_visual_priority_and_permission_icon_rules():
     days = OrthodoxCalendarEngine().generate_year(2027, "Queensland")
     strict = next(day for day in days if day.fasting and day.fasting.level.value == "Strict fast")
-    assert PdfRenderer.visual_state(strict) == "strict_fast"
+    assert PdfRenderer.visual_state(strict) == "fast_day"
     assert "strict_fast" in PdfRenderer.permission_icons(strict)
 
 

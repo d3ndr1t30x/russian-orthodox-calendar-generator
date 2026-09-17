@@ -579,7 +579,7 @@ class MainWindow(QMainWindow):
             if dialog.exec(): dialog.apply(); self.store.save(self.settings); self.language.setCurrentText(self.settings.language); self.orientation.setCurrentText(self.settings.orientation)
 
     def about(self) -> None:
-        QMessageBox.about(self, "About", "<h2>Russian Orthodox Calendar Generator</h2><p>Version 1.8.0</p><p>Source-faithful feast-rank and fasting symbols, matched Word/PDF publication styling, optional Liturgical Week / Tone display and hidden-by-default saints complement portable .rocproject documents.</p>")
+        QMessageBox.about(self, "About", "<h2>Russian Orthodox Calendar Generator</h2><p>Version 1.9.0</p><p>Reference-matched PDF and Word page geometry, typography, colours, symbols, legends and dynamic calendar content complement portable .rocproject documents.</p>")
 
     def run_gui_smoke_test(self) -> None:
         """Exercise packaged viewer/editor UX and exit non-zero on failure."""

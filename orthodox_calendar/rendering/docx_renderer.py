@@ -32,7 +32,7 @@ def _set_cell_shading(cell, colour: str) -> None:
     shading.set(qn("w:fill"), colour)
 
 
-def _set_cell_margins(cell, value_dxa: int = 45) -> None:
+def _set_cell_margins(cell, value_dxa: int = 115) -> None:
     tc_pr = cell._tc.get_or_add_tcPr(); margins = tc_pr.first_child_found_in("w:tcMar")
     if margins is None:
         margins = OxmlElement("w:tcMar"); tc_pr.append(margins)
@@ -94,7 +94,7 @@ def _add_ranked_text(paragraph, text: str, rank: ServiceRank, size: float = 8, b
     _format_run(paragraph.add_run(text), size, bold, text_colour)
 
 
-def _add_shaded_swatch(paragraph, colour: str = "C7C7C7") -> None:
+def _add_shaded_swatch(paragraph, colour: str = "BFBFBF") -> None:
     run = paragraph.add_run("   ")
     shading = OxmlElement("w:shd"); shading.set(qn("w:fill"), colour)
     run._element.get_or_add_rPr().append(shading)
@@ -123,7 +123,7 @@ class DocxRenderer:
         else:
             section.orientation = WD_ORIENT.PORTRAIT; section.page_width = Mm(210); section.page_height = Mm(297)
         section.left_margin = section.right_margin = Mm(7)
-        section.top_margin = section.bottom_margin = Mm(6)
+        section.top_margin = section.bottom_margin = Mm(5)
         section.header_distance = section.footer_distance = Mm(3)
         normal = document.styles["Normal"]
         normal.font.name = "Arial Narrow"; normal.font.size = Pt(8)
@@ -132,7 +132,8 @@ class DocxRenderer:
         document.core_properties.author = "Russian Orthodox Calendar Generator"
         document.core_properties.comments = f"Editable calendar generated directly from resolved project data by version {__version__}."
         footer = section.footer.paragraphs[0]; footer.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        _format_run(footer.add_run(options.custom_footer or "Verify calendar data against the current official church calendar."), 4.5, colour="555555")
+        footer_text = options.custom_footer or f"Russian Orthodox Calendar {options.year} - {options.jurisdiction}"
+        _format_run(footer.add_run(footer_text), 9, colour="555555")
 
         usable_mm = (297 if options.orientation == "Landscape" else 210) - 14
         total_width_dxa = round(usable_mm / 25.4 * 1440)
@@ -143,38 +144,44 @@ class DocxRenderer:
         if self._detail_days:
             detail_section = document.add_section(WD_SECTION.NEW_PAGE)
             detail_section.orientation = section.orientation; detail_section.page_width = section.page_width; detail_section.page_height = section.page_height
-            detail_section.left_margin = detail_section.right_margin = Mm(7); detail_section.top_margin = detail_section.bottom_margin = Mm(6)
+            detail_section.left_margin = detail_section.right_margin = Mm(7); detail_section.top_margin = detail_section.bottom_margin = Mm(5)
             columns = detail_section._sectPr.xpath("./w:cols")[0]; columns.set(qn("w:num"), "3"); columns.set(qn("w:space"), "240")
             self._add_daily_details(document, options)
         document.save(output)
         return output
 
     def _add_month(self, document: Document, days: list[CalendarDay], month: int, options: PdfOptions, total_width_dxa: int) -> None:
-        title = document.add_paragraph(); title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        title.paragraph_format.space_after = Pt(2); title.paragraph_format.keep_with_next = True
         month_name = MONTHS_RU[month] if options.language == "Russian" else calendar.month_name[month]
-        _format_run(title.add_run(month_name), 28, False, "111111", "Times New Roman")
-        _format_run(title.add_run(f"    {options.year}  |  {options.jurisdiction}"), 8, False, "333333", "Arial Narrow")
-
         weeks = calendar.Calendar(firstweekday=6).monthdayscalendar(options.year, month)
-        table = document.add_table(rows=1, cols=7); table.style = "Table Grid"
+        table = document.add_table(rows=2, cols=7); table.style = "Table Grid"
         labels = WEEKDAYS_RU if options.language == "Russian" else WEEKDAYS_EN
         for index, (cell, label) in enumerate(zip(table.rows[0].cells, labels)):
-            _set_cell_shading(cell, "A61E2D" if index == 0 else "28618B"); _set_cell_margins(cell, 35)
+            _set_cell_shading(cell, "990000" if index == 0 else "0066FF"); _set_cell_margins(cell, 0)
             cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
             paragraph = cell.paragraphs[0]; paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            _format_run(paragraph.add_run(label), 7.5, True, "FFFFFF", "Arial")
-        table.rows[0].height = Mm(6); table.rows[0].height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST; _prevent_split(table.rows[0])
+            _format_run(paragraph.add_run(label), 9, True, "FFFFFF", "Segoe UI")
+        table.rows[0].height = Mm(4.6); table.rows[0].height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST; _prevent_split(table.rows[0])
+
+        title_cell = table.rows[1].cells[0].merge(table.rows[1].cells[-1])
+        _set_cell_margins(title_cell, 0)
+        title_cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+        title = title_cell.paragraphs[0]; title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        _format_run(title.add_run(month_name), 40, False, "111111", "Times New Roman")
+        table.rows[1].height = Mm(17.37); table.rows[1].height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST; _prevent_split(table.rows[1])
 
         by_number = {day.civil_date.day: day for day in days}
         # Leave room for Word's mandatory paragraph after the final table so
         # a one-month export does not acquire a blank trailing page.
-        row_height = max(24, int(159 / len(weeks)))
+        # Keep the complete editable grid on one Word page. The source's visible
+        # five-row rhythm is 30 mm; six-row months compress proportionally.
+        row_height = (150.0 if len(weeks) == 5 else 140.0) / len(weeks)
         week_rows = []
         for week in weeks:
             row = table.add_row(); row.height = Mm(row_height); row.height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST; _prevent_split(row)
             week_rows.append(row)
         _set_table_geometry(table, total_width_dxa)
+        title_width = title_cell._tc.get_or_add_tcPr().find(qn("w:tcW"))
+        title_width.set(qn("w:w"), str(total_width_dxa)); title_width.set(qn("w:type"), "dxa")
         column_width_mm = total_width_dxa / 1440 * 25.4 / 7
         for week, row in zip(weeks, week_rows):
             for number, cell in zip(week, row.cells):
@@ -184,13 +191,13 @@ class DocxRenderer:
 
     def _fill_day(self, cell, day: CalendarDay, options: PdfOptions, column_width_mm: float) -> None:
         state = PdfRenderer.visual_state(day)
-        if state in {"great_feast", "vigil"}: _set_cell_shading(cell, "F8CACA")
-        elif state == "strict_fast": _set_cell_shading(cell, "D3D3D3")
+        if state in {"great_feast", "vigil"}: _set_cell_shading(cell, "FFCCCC")
+        elif state == "fast_day": _set_cell_shading(cell, "BFBFBF")
         date_line = cell.paragraphs[0]; date_line.paragraph_format.space_after = Pt(0)
         date_line.paragraph_format.tab_stops.add_tab_stop(Mm(max(18, column_width_mm - 3)), WD_TAB_ALIGNMENT.RIGHT)
-        date_colour = "B00000" if day.civil_date.weekday() == 6 or state in {"great_feast", "vigil"} else "111111"
-        _format_run(date_line.add_run(str(day.civil_date.day)), 14, False, date_colour, "Times New Roman")
-        if options.include_julian: _format_run(date_line.add_run(str(day.julian_date.day)), 9, False, date_colour, "Times New Roman")
+        date_colour = "C00000" if day.civil_date.weekday() == 6 or state in {"great_feast", "vigil"} else "111111"
+        _format_run(date_line.add_run(str(day.civil_date.day)), 28, False, date_colour, "Times New Roman")
+        if options.include_julian: _format_run(date_line.add_run(str(day.julian_date.day)), 14, False, date_colour, "Times New Roman")
         fasting_symbols = IconRenderer.fasting_symbol_names(day) if options.include_fasting_icons else []
         if fasting_symbols:
             _format_run(date_line.add_run("\t"), 8)
@@ -211,7 +218,7 @@ class DocxRenderer:
             rank = feast.service_rank
             if not symbol_for(rank) and not day_rank_used and symbol_for(day_rank): rank = day_rank; day_rank_used = True
             elif symbol_for(rank): day_rank_used = True
-            _add_ranked_text(paragraph, _compact(feast.name), rank, 8, major, "B00000" if major else "222222")
+            _add_ranked_text(paragraph, _compact(feast.name), rank, 10 if major else 8, major, "CC0000" if major else "222222")
         for saint in shown_saints:
             paragraph = _paragraph(cell)
             rank = saint.service_rank
@@ -239,8 +246,8 @@ class DocxRenderer:
         segments = []
         leading = [index for index, value in enumerate(weeks[0]) if not value]
         trailing = [index for index, value in enumerate(weeks[-1]) if not value]
-        if leading: segments.append((table.rows[1], leading))
-        if trailing: segments.append((table.rows[len(weeks)], trailing))
+        if leading: segments.append((table.rows[2], leading))
+        if trailing: segments.append((table.rows[len(weeks) + 1], trailing))
         if not segments:
             return
         slots: list[tuple[object, list[int], str]] = []

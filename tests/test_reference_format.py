@@ -10,9 +10,12 @@ from orthodox_calendar.rendering.pdf_renderer import PdfOptions, PdfRenderer
 
 
 def test_reference_geometry_matches_measured_docx():
-    assert abs(REFERENCE_LAYOUT.margin_left / mm - 7.1) < .01
-    assert abs((A4[1] - REFERENCE_LAYOUT.margin_left - REFERENCE_LAYOUT.margin_right) / 7 / mm - 40.4) < .1
+    assert abs(REFERENCE_LAYOUT.margin_left / mm - 7.0) < .01
+    assert abs((A4[1] - REFERENCE_LAYOUT.margin_left - REFERENCE_LAYOUT.margin_right) / 7 / mm - 40.43) < .1
     assert REFERENCE_LAYOUT.weekday_height / mm == 4.6
+    assert abs(REFERENCE_LAYOUT.title_height / mm - 17.37) < .01
+    assert abs(REFERENCE_LAYOUT.cell_padding / mm - 2.03) < .01
+    assert REFERENCE_LAYOUT.border_width == .5
 
 
 def test_reference_pdf_is_sunday_first_and_landscape(tmp_path: Path):
